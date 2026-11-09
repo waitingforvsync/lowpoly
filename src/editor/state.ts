@@ -47,3 +47,9 @@ export const insetMode = signal<'ring' | 'hole'>('ring');
 
 /** The value of the operation in progress (e.g. a push/pull distance), shown in the status bar. */
 export const measurement = signal<string | null>(null);
+
+/** The material the Paint tool applies (chosen in the outliner, or sampled with Alt+click). */
+export const activeMaterial = signal(0);
+
+/** Show image textures in the viewport (off: plain material colours). */
+export const showTextures = signal(true);

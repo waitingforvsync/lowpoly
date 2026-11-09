@@ -1,14 +1,17 @@
 import {
+  cloneMaterial,
   cloneTransform,
   DEFAULT_MATERIAL_ID,
   type Document,
   type Material,
+  type TextureAsset,
+  type TextureId,
   type ObjectId,
   type SceneObject,
   type Transform,
 } from '../core/document';
 import { fromMeshData, toMeshData } from '../core/halfedge/convert';
-import type { Vec3 } from '../core/math/vec';
+import type { Vec2, Vec3 } from '../core/math/vec';
 import type { MaterialId, MeshData, VertId } from '../core/meshdata';
 import type { PrimitiveSource } from '../core/primitives';
 import { type Command, CompositeCommand, FnCommand } from '../history/history';
@@ -196,26 +199,39 @@ export class AddMaterialCommand implements Command {
     private readonly mat: Material,
   ) {}
   apply(): void {
-    this.ctx.doc.insertMaterial({ ...this.mat, color: [...this.mat.color] });
+    this.ctx.doc.insertMaterial(cloneMaterial(this.mat));
   }
   revert(): void {
     this.ctx.doc.removeMaterial(this.mat.id);
   }
 }
 
+/** The editable properties of a material. `null` unsets an optional one. */
+export interface MaterialProps {
+  name: string;
+  color: Vec3;
+  texture: TextureId | null;
+  textureSize: Vec2 | null;
+}
+
+function materialProps(m: Material): MaterialProps {
+  const { name, color, texture, textureSize } = cloneMaterial(m);
+  return { name, color, texture: texture ?? null, textureSize: textureSize ?? null };
+}
+
 export class SetMaterialPropsCommand implements Command {
-  private readonly before: Pick<Material, 'name' | 'color'>;
+  private readonly before: MaterialProps;
   constructor(
     private readonly ctx: CommandContext,
     private readonly id: MaterialId,
-    private readonly after: Partial<Pick<Material, 'name' | 'color'>>,
+    private readonly after: Partial<MaterialProps>,
     readonly label: string,
     /** Values to restore on undo, when the caller already applied a live preview. */
-    before?: Pick<Material, 'name' | 'color'>,
+    before?: Partial<MaterialProps>,
   ) {
     const m = ctx.doc.findMaterial(id);
     if (!m) throw new Error(`No material with id ${id}`);
-    this.before = before ?? { name: m.name, color: [...m.color] };
+    this.before = { ...materialProps(m), ...before };
   }
   apply(): void {
     this.set(this.after);
@@ -223,10 +239,33 @@ export class SetMaterialPropsCommand implements Command {
   revert(): void {
     this.set(this.before);
   }
-  private set(p: Partial<Pick<Material, 'name' | 'color'>>): void {
+  private set(p: Partial<MaterialProps>): void {
     const m = this.ctx.doc.findMaterial(this.id)!;
     if (p.name !== undefined) m.name = p.name;
     if (p.color !== undefined) m.color = [...p.color];
+    if (p.texture !== undefined) {
+      if (p.texture === null) delete m.texture;
+      else m.texture = p.texture;
+    }
+    if (p.textureSize !== undefined) {
+      if (p.textureSize === null) delete m.textureSize;
+      else m.textureSize = [...p.textureSize];
+    }
+  }
+}
+
+/** Add a texture image to the document. */
+export class AddTextureCommand implements Command {
+  readonly label = 'Add Texture';
+  constructor(
+    private readonly ctx: CommandContext,
+    private readonly tex: TextureAsset,
+  ) {}
+  apply(): void {
+    this.ctx.doc.insertTexture({ ...this.tex });
+  }
+  revert(): void {
+    this.ctx.doc.removeTexture(this.tex.id);
   }
 }
 

@@ -131,7 +131,11 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
   - **Texture lock (on by default, like SketchUp):** faces created by ops such as
     extrude, push/pull or inset get world-space box-projected UVs that continue
     their neighbours' mapping. That way, pushing a textured face doesn't smear the texture.
-- **Paint tool:** applies the active material to clicked faces. Alt+click samples the material under the cursor.
+- **Paint tool:** applies the active material to clicked faces. Alt+click samples the material under
+  the cursor. Ctrl+click paints the connected faces that share the clicked face's material; Shift+click
+  every face of the object with that material. Clicking a selected face paints the whole selection.
+- **Texture size:** each material has a tile size, the world size of one repeat of its image, since
+  UVs are in world units.
 - **UV editor panel:** a 2D view of the selected faces' UVs. Comes later (M6).
 
 ## Undo / redo
@@ -280,7 +284,8 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
    transforms, delete/dissolve/merge.
 5. **M4 Modelling ops:** push/pull, extrude, inset, split/connect, make face/hole, flip/recalc
    normals, triangulate. Texture lock (walls continue the neighbouring face's texture).
-6. **M5 Materials and texturing:** texture import, paint tool, UV projection commands, textured rendering.
+6. **M5 Materials and texturing:** texture import, paint tool, UV projection commands (per face, box,
+   planar, transform), textured rendering, texture display toggle.
 7. **M6 SketchUp-style feel:** inference snapping, axis lock, measurement box, line and rectangle tools, loop cut.
 8. **M7 I/O and polish:** OBJ import/export, GLB export, autosave, UV editor panel, deploy.
 

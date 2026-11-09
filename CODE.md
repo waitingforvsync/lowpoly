@@ -112,6 +112,7 @@ They rebuild affected faces through `addFace`/`removeFace` and roll back on fail
 | `inset.ts` | `insetFaces(mesh, ids, amount, 'ring' \| 'hole')`, `offsetLoop` | Per-face inset with miter offsets. `ring`: ring of quads, holes inset too. `hole`: SketchUp Offset, the old face becomes a frame around the inset face. Refuses amounts that turn edges around. New corners continue the face's UVs |
 | `connect.ts` | `connectVertices(mesh, verts)`, `subdivideEdges(mesh, edges, cuts)` | Connect splits faces between consecutive selected corners. Both edit in place and return new edge keys |
 | `faces.ts` | `makeFace(mesh, {edges} \| {verts})`, `makeHole(mesh, inner)`, `triangulateFaces`, `faceContains` | Make face: from one edge cycle, or vertices (cycle order if joined by edges, else by angle); winding follows free half-edges, else faces away from the mesh centre. Make hole: a coplanar inner face becomes a filled hole of the face around it |
+| `paint.ts` | `paintTargets(faces, clicked, 'face' \| 'connected' \| 'same')` | Which faces a Paint click affects: the face, its edge-connected faces of the same material, or every face with that material |
 | `normals.ts` | `shells`, `shellOrientation`, `flipNormals(mesh, ids?)`, `recalculateNormals(mesh, ids?)` | Orientation is per **shell** (neighbours always wind consistently), so these flip whole edge-connected shells. Recalc uses the signed volume about the shell's centre |
 
 ### `triangulate.ts`
@@ -127,6 +128,12 @@ primitive is Z-up, sits on z = 0, faces outward and has world-unit UVs.
 ### `uv/project.ts`
 `planarAxes(normal)` and `planarUV(p, axes)`: world-unit planar projection. Vertical faces get +Z as up.
 
+### `uv/uvops.ts` — UV commands
+`projectFaceUVs(mesh, faces, kind, params)` with `kind` = `'face'` (each face on its own plane),
+`'planar'` (one plane: the average normal) or `'box'` (nearest world axis per face, `nearestAxis`).
+`transformFaceUVs(mesh, faces, params)` scales/rotates the existing UVs about their centre, then
+offsets them. `UVParams = {scale, rotation (deg), offset}`: uv → R·uv / scale + offset.
+
 ### `uv/continue.ts` — texture lock
 `faceUVMap(points, uvs)`: least-squares affine map of a planar face's UVs (null if degenerate); used for
 inset corners and holes. `wallUVs(a, b, uvA, uvB, offset)`: UVs for the far corners of a wall grown from
@@ -138,12 +145,19 @@ the world-space fallback.
   - `id`, `name`, `mesh: HalfEdgeMesh`, `transform`, `visible`, `locked`.
   - `source: PrimitiveSource | null`: set while the object is still an unedited primitive.
   - `meshRev`: bump it on any mesh change, or call `setMesh()`.
-- `Material`: `{id, name, color}` (sRGB, 0–1). Material 0 is the default and can't be removed.
+- `Material`: `{id, name, color, texture?, textureSize?}`. `color` is sRGB 0–1 (shown when untextured
+  or textures are off). `textureSize` is the world size of one image repeat (default 1 × 1): UVs are
+  in world units, so this sets how big the texture looks. Material 0 is the default and can't be
+  removed. `cloneMaterial`.
+- `TextureAsset`: `{id, name, mime, data (a data: URL), width, height}`.
 - `Document`:
-  - ordered `objects` and `materials`, plus `nextObjectId` / `nextMaterialId` (these only ever increase);
-  - lookups and edits: `findObject`, `object`, `objectIndex`, `insertObject`, `removeObject`, `findMaterial`, `insertMaterial`, `removeMaterial`;
+  - ordered `objects` and `materials`, a `textures` list, plus `nextObjectId` / `nextMaterialId` /
+    `nextTextureId` (these only ever increase);
+  - lookups and edits: `findObject`, `object`, `objectIndex`, `insertObject`, `removeObject`, `findMaterial`, `insertMaterial`, `removeMaterial`, `findTexture`, `insertTexture`, `removeTexture`, `materialTexture(m)`;
   - `uniqueObjectName`.
 - Serialization: `serializeDocument` / `deserializeDocument` (`DocumentData`, format `'lowpoly'` v1), `objectToData` / `objectFromData`.
+  Textures are embedded; only those some material uses are saved (unused ones stay in memory for undo).
+  `textures` / `nextTextureId` are optional, so older files load; a material pointing at a missing image loses the reference.
 
 ### `testing/fixtures.ts`
 `cubeData`, `quadData`, `twoTrianglesData`, `squareWithHoleData`: canonical `MeshData` for tests.
@@ -166,14 +180,15 @@ the world-space fallback.
 | File | Contents |
 |---|---|
 | `editor.ts` | `Editor` singleton `editor`: `doc`, `docVersion` / `historyVersion` / `fileName` signals, `history`, `ctx` (a `CommandContext`), `execute(cmd, select?)`, `undo`, `redo`, `notifyPreview`, `replaceDocument`, `isDirty`. After every change it prunes stale selections and, in dev builds, validates every mesh |
-| `state.ts` | UI signals: `selectionMode`, `activeTool`, `snapEnabled`, `snapInvertHeld`, `gridStep`, `rotationStep`, `projection`, `transformSpace`, `xray`, `cursorWorld`, `statusMessage` (+ `showStatus`), `textureLock`, `insetMode`, `measurement` (value of the drag in progress, shown in the status bar) |
+| `state.ts` | UI signals: `selectionMode`, `activeTool`, `snapEnabled`, `snapInvertHeld`, `gridStep`, `rotationStep`, `projection`, `transformSpace`, `xray`, `cursorWorld`, `statusMessage` (+ `showStatus`), `textureLock`, `insetMode`, `measurement` (value of the drag in progress, shown in the status bar), `activeMaterial` (what Paint applies), `showTextures` |
+| `materialActions.ts` | `loadMaterialTexture(id)` (file picker), `setMaterialTextureFromFile(id, blob)`, `clearMaterialTexture`, `setMaterialTextureSize`, `paintMaterial()` (the active material, or Default if it was deleted), `paintFaces(objectId, faceIds, scope)`, `sampleMaterial` |
 | `selection.ts` | Object selection (`selectedObjects`, `activeObject`, `setSelection`, `selectOnly`, `addToSelection`, `toggleSelection`, `clearSelection`). Component selection: per mode, per object `componentSelection[mode]`, `editObjects`, `applyComponents(mode, refs, op)`, `setComponents`, `clearComponents`, `componentCount`. Undo snapshots: `snapshotSelection` / `restoreSelection`. Plus `pruneSelection` |
 | `components.ts` | Resolving element keys against a mesh (`vertexOf`, `edgeOf`, `faceOf`, `keyOfEdge`, `elementExists`, `verticesOf`, `edgesOf`, `facesOf`, `allKeys`) and `convertSelection` between modes |
 | `modes.ts` | `setSelectionMode(mode)`: fixes the edit set when entering a component mode, converts the selection between component modes. `isComponentMode` |
-| `commands.ts` | `CommandContext`, `AddObjectsCommand`, `RemoveObjectsCommand`, `SetTransformsCommand`, `SetObjectPropsCommand`, `ReplaceMeshCommand` (full before/after snapshots; `capture(obj)`), `MoveVertsCommand` (positions only; clears `source`), `AddMaterialCommand`, `SetMaterialPropsCommand`, `assignObjectMaterialCommand`, `removeMaterialCommand` |
+| `commands.ts` | `CommandContext`, `AddObjectsCommand`, `RemoveObjectsCommand`, `SetTransformsCommand`, `SetObjectPropsCommand`, `ReplaceMeshCommand` (full before/after snapshots; `capture(obj)`), `MoveVertsCommand` (positions only; clears `source`), `AddMaterialCommand`, `SetMaterialPropsCommand`, `assignObjectMaterialCommand`, `removeMaterialCommand`. `SetMaterialPropsCommand` takes `Partial<MaterialProps>` (`name`, `color`, `texture`, `textureSize`; `null` unsets the optional ones, so undo restores "never set" exactly). `AddTextureCommand` |
 | `actions.ts` | Object-mode operations: `createPrimitive`, `deleteSelection`, `duplicateSelection`, `setTransforms`, `setObjectTransform`, `renameObject`, `setObjectsVisible`, `setObjectsLocked`, `setPrimitiveSource`, `selectAll`, `selectNone`, `invertSelection`. Materials: `addMaterial`, `previewMaterialColor` / `commitMaterialColor`, `renameMaterial`, `deleteMaterial`, `assignMaterial`, `objectMaterial` |
 | `componentActions.ts` | Component operations: `deleteComponents`, `dissolveComponents`, `mergeComponentsAtCenter`, `mergeComponentsByDistance`, `selectAllComponents`, `invertComponents`, `componentCentroid`, `moveComponentsTo`, **`commitVertexMoves`** (the single path for vertex moves: folds bent faces, then picks `MoveVerts` or `ReplaceMesh`), `setEdgesHard` / `selectedEdgesHard`, `assignMaterialToFaces` / `selectedFacesMaterial`. **`editMeshes(label, entries, edit, selectMode?)`** runs topology edits on a clone of each mesh; `edit` returns the mesh or an `EditOutcome {mesh?, select?}`, and `select` becomes the selection in `selectMode` (redo restores it). Edits that change nothing are not recorded; failures show in the status bar. `selectedEntries(mode)` |
-| `modelActions.ts` | M4 operations on the selection: `pushPullSelection`, `extrudeSelection`, `insetSelection`, `connectSelection` (vertex: split faces; edge: halve edges and connect midpoints), `subdivideSelection`, `makeFaceFromSelection`, `makeHoleSelection`, `flipSelection`, `recalcNormalsSelection`, `triangulateSelection` (the last three act on whole objects in object mode). `extrudeMesh(mesh, mode, keys, offset)` is shared with the Extrude tool |
+| `modelActions.ts` | M4 operations on the selection: `pushPullSelection`, `extrudeSelection`, `insetSelection`, `connectSelection` (vertex: split faces; edge: halve edges and connect midpoints), `subdivideSelection`, `makeFaceFromSelection`, `makeHoleSelection`, `flipSelection`, `recalcNormalsSelection`, `triangulateSelection` (the last three act on whole objects in object mode), `projectUVSelection(kind, params)`, `transformUVSelection(params)` (faces in face mode, whole objects in object mode; `faceOrObjectEntries`). `extrudeMesh(mesh, mode, keys, offset)` is shared with the Extrude tool |
 | `tools.ts` | `TOOLS` definitions (id, label, key, hint), `toolById` |
 | `keymap.ts` | `installKeymap()`. Shortcut tables; actions are mode-aware via `byMode`. Tracks Ctrl for snap inversion, and warns on unload when there are unsaved changes |
 | `viewActions.ts` | Bridge to the live viewport: `attachViewport`, `currentViewport`, `setStandardView`, `toggleProjection`, `frameSelection`, `spawnPoint` |
@@ -194,9 +209,9 @@ the world-space fallback.
 
 | File | Contents |
 |---|---|
-| `Viewport.ts` | Owns the renderer, both cameras (perspective/ortho), OrbitControls, `SceneSync`, `ComponentOverlay`, `Gizmo` and the grid. One effect re-syncs on any document, selection or mode change. Pointer handling: click → pick, drag past 4 px → box select (window or crossing), hover highlight in component modes; with the Push/Pull or Inset tool, a press on a face starts a `FaceDrag` (Esc cancels). Also `setStandardView`, `frameObjects`, `framePoints`, `spawnPoint`, `worldToScreen` |
+| `Viewport.ts` | Owns the renderer, both cameras (perspective/ortho), OrbitControls, `SceneSync`, `ComponentOverlay`, `Gizmo` and the grid. One effect re-syncs on any document, selection or mode change. Pointer handling: click → pick, drag past 4 px → box select (window or crossing), hover highlight in component modes; with the Push/Pull or Inset tool, a press on a face starts a `FaceDrag` (Esc cancels); with the Paint tool a click paints (Ctrl: connected, Shift: same material, Alt: sample). Also `setStandardView`, `frameObjects`, `framePoints`, `spawnPoint`, `worldToScreen` |
 | `FaceDrag.ts` | `PushPullDrag`, `InsetDrag`, `localFaceHit`. Each pointer move re-runs the op on a fresh copy of the original mesh as a preview (`obj.setMesh`); release restores the original and commits one `ReplaceMeshCommand`. Push/Pull distance = closest approach of the pointer ray to the normal line through the press point; inset amount = pointer travel across the face plane. Both in local space, snapped to the grid step |
-| `SceneSync.ts` | Mirrors the document into Three.js: one group per object (mesh + hard-edge lines + soft-edge lines). Rebuilds geometry only when `meshRev` changes. Keeps a material per document material; X-ray makes faces translucent. `pickables`, `meshOf`, `bounds` |
+| `SceneSync.ts` | Mirrors the document into Three.js: one group per object (mesh + hard-edge lines + soft-edge lines). Rebuilds geometry only when `meshRev` changes. Keeps a material per document material; X-ray makes faces translucent. Textures: one decoded image per `TextureAsset`, one `THREE.Texture` per material (repeat = 1 / `textureSize`, sRGB, repeat wrapping); a textured material renders white × texture. Images decode asynchronously and call the redraw callback given to the constructor. `pickables`, `meshOf`, `bounds` |
 | `meshBuffers.ts` | `buildMeshBuffers(mesh)` (pure, tested): non-indexed positions, normals (flat, smoothed across soft edges via `cornerNormal`), UVs, per-material groups, `triFaces` (triangle → face id), hard and soft edge segments |
 | `Picker.ts` | `pickComponent(env, mode, x, y)`, `boxComponents(env, mode, rect, crossing)`, `boxObjects`. Screen-space distance for vertices and edges, raycasting for faces. Occlusion uses jittered rays with a tolerance of a few pixels' world size |
 | `ComponentOverlay.ts` | Vertex dots, thick selected/hover edges (`LineSegments2`), translucent face fills. Rebuilt on change |
@@ -209,11 +224,18 @@ the world-space fallback.
 `fields.tsx` has `TextField`, `NumberField` and `Vec3Field` (commit on Enter or blur, revert on Escape),
 plus colour hex helpers. `icons.tsx` has small SVG icons. `Properties.tsx` shows a **Model** section per
 component mode (numeric Push/Pull, Extrude, Inset, Subdivide; Connect, Make Face/Hole, Triangulate,
-Flip, Recalc Normals) and per-tool options (texture lock, inset mode).
+Flip, Recalc Normals), a **UV** section (scale, rotation, offset; Per Face / Box / Planar / Transform) in
+face and object modes, and per-tool options (texture lock, inset mode, paint material). In the Outliner,
+clicking a material makes it the active (paint) material; its texture (Load…/Clear) and tile size
+show below the list.
 
 **Important: `useDoc()`.** The document is mutated in place, and `@preact/signals` skips re-rendering
 children whose props haven't changed. Every component that displays document data must call
 `useDoc()` (which reads `editor.docVersion`) itself. See the JOURNAL entry in M3.
+
+## `io/texture.ts`
+`pickImageFile()`, `readTexture(file)` (data URL; images over `MAX_TEXTURE_SIZE` = 2048 px are scaled
+down so documents stay small), `loadImage`.
 
 ## `io/file.ts`
 `newDocument`, `saveDocument(saveAs?)`, `openDocument`. Uses the File System Access API when

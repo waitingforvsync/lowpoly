@@ -27,6 +27,30 @@ describe('Document', () => {
     expect(restored.nextMaterialId).toBe(4);
   });
 
+  it('saves textures that materials use, and drops unused ones', () => {
+    const doc = sampleDoc();
+    const png = (id: number) => ({ id, name: `t${id}.png`, mime: 'image/png', data: 'data:image/png;base64,AAAA', width: 4, height: 4 });
+    doc.insertTexture(png(0));
+    doc.insertTexture(png(1));
+    doc.findMaterial(3)!.texture = 1;
+    doc.findMaterial(3)!.textureSize = [2, 0.5];
+    const data = serializeDocument(doc);
+    expect(data.textures!.map((t) => t.id)).toEqual([1]);
+    const restored = deserializeDocument(JSON.parse(JSON.stringify(data)));
+    expect(restored.materialTexture(restored.findMaterial(3)!)?.name).toBe('t1.png');
+    expect(restored.findMaterial(3)!.textureSize).toEqual([2, 0.5]);
+    expect(restored.nextTextureId).toBe(2);
+  });
+
+  it('loads files from before textures existed, and ignores missing images', () => {
+    const data = serializeDocument(sampleDoc());
+    delete data.textures;
+    delete data.nextTextureId;
+    data.materials[1]!.texture = 7;
+    const restored = deserializeDocument(JSON.parse(JSON.stringify(data)));
+    expect(restored.findMaterial(3)!.texture).toBeUndefined();
+  });
+
   it('always has the default material', () => {
     const data = serializeDocument(sampleDoc());
     data.materials = data.materials.filter((m) => m.id !== 0);

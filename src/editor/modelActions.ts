@@ -7,6 +7,7 @@ import { makeFace, makeHole, triangulateFaces } from '../core/ops/faces';
 import { insetFaces } from '../core/ops/inset';
 import { flipNormals, recalculateNormals } from '../core/ops/normals';
 import { pushPull } from '../core/ops/pushpull';
+import { type ProjectionKind, projectFaceUVs, transformFaceUVs, type UVParams } from '../core/uv/uvops';
 import { allKeys, edgesOf, facesOf, verticesOf } from './components';
 import { editMeshes, type EditOutcome, selectedEntries } from './componentActions';
 import { editor } from './editor';
@@ -154,7 +155,7 @@ export function makeHoleSelection(): void {
  * Entries for operations that apply to whole objects in object mode, or to the selected faces
  * in face mode.
  */
-function faceOrObjectEntries(): [SceneObject, ReadonlySet<ElementKey>][] {
+export function faceOrObjectEntries(): [SceneObject, ReadonlySet<ElementKey>][] {
   const mode = selectionMode.peek();
   if (isComponentMode(mode)) return mode === 'face' ? selectedEntries('face') : [];
   return editor.doc.objects
@@ -198,4 +199,26 @@ export function triangulateSelection(): void {
     (mesh, keys) => ({ select: triangulateFaces(mesh, facesOf(mesh, keys)) }),
     inFaceMode ? 'face' : undefined,
   );
+}
+
+// --- UVs (M5) ---------------------------------------------------------------------------------
+
+const PROJECTION_LABELS: Record<ProjectionKind, string> = { face: 'Per Face', planar: 'Planar', box: 'Box' };
+
+/** Re-project the UVs of the selected faces (or whole objects in object mode). */
+export function projectUVSelection(kind: ProjectionKind, params: UVParams): void {
+  const entries = faceOrObjectEntries();
+  if (!entries.length) return;
+  editMeshes(`UV Project (${PROJECTION_LABELS[kind]})`, entries, (mesh, keys) => {
+    projectFaceUVs(mesh, facesOf(mesh, keys), kind, params);
+  });
+}
+
+/** Scale, rotate and offset the existing UVs of the selected faces (or whole objects). */
+export function transformUVSelection(params: UVParams): void {
+  const entries = faceOrObjectEntries();
+  if (!entries.length) return;
+  editMeshes('Transform UVs', entries, (mesh, keys) => {
+    transformFaceUVs(mesh, facesOf(mesh, keys), params);
+  });
 }

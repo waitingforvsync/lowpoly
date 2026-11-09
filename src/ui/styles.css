@@ -404,6 +404,24 @@ body,
   margin-top: 10px;
 }
 
+.swatch-img {
+  width: 18px;
+  height: 18px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  flex: none;
+}
+
+.tex-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  align-self: center;
+}
+
 .op-row {
   display: flex;
   gap: 4px;

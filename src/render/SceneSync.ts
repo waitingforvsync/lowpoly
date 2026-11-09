@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { Document, ObjectId, SceneObject } from '../core/document';
-import { DEFAULT_MATERIAL_ID } from '../core/document';
+import type { Document, Material, ObjectId, SceneObject, TextureId } from '../core/document';
+import { DEFAULT_MATERIAL_ID, DEFAULT_TEXTURE_SIZE } from '../core/document';
 import type { MaterialId } from '../core/meshdata';
 import { applyTransform } from './transformMath';
 import { buildMeshBuffers } from './meshBuffers';
@@ -16,14 +16,25 @@ interface Entry {
   groupMaterials: MaterialId[];
 }
 
+/** A decoded texture image, shared by every material that uses it. */
+interface ImageEntry {
+  data: string;
+  img: HTMLImageElement;
+  loaded: boolean;
+}
+
 /**
  * Mirrors the document into a Three.js scene graph. Rebuilds an object's geometry only when its
  * meshRev changes; transforms, visibility, selection and material colours sync every time.
+ * Texture images decode asynchronously; `onTextureLoaded` asks for a redraw when one is ready.
  */
 export class SceneSync {
   readonly root = new THREE.Group();
   private readonly entries = new Map<ObjectId, Entry>();
   private readonly materials = new Map<MaterialId, THREE.MeshStandardMaterial>();
+  private readonly images = new Map<TextureId, ImageEntry>();
+  /** Each material gets its own THREE.Texture (its repeat depends on the material's texture size). */
+  private readonly materialTextures = new Map<MaterialId, { textureId: TextureId; tex: THREE.Texture }>();
   private readonly edgeMaterial = new THREE.LineBasicMaterial({ color: COLORS.edge });
   private readonly selectedEdgeMaterial = new THREE.LineBasicMaterial({ color: COLORS.selection });
   /** Soft edges: drawn faintly, so smooth surfaces read as smooth. */
@@ -34,7 +45,7 @@ export class SceneSync {
     opacity: 0.4,
   });
 
-  constructor() {
+  constructor(private readonly onTextureLoaded: () => void = () => {}) {
     this.root.name = 'document';
   }
 
@@ -46,9 +57,10 @@ export class SceneSync {
   /**
    * @param selected objects drawn with highlighted edges
    * @param xray draw faces translucent so hidden geometry shows through
+   * @param textures show image textures (otherwise plain material colours)
    */
-  sync(doc: Document, selected: ReadonlySet<ObjectId>, xray = false): void {
-    this.syncMaterials(doc, xray);
+  sync(doc: Document, selected: ReadonlySet<ObjectId>, xray = false, textures = true): void {
+    this.syncMaterials(doc, xray, textures);
 
     const live = new Set<ObjectId>();
     for (const obj of doc.objects) {
@@ -112,13 +124,14 @@ export class SceneSync {
       e.softLines.geometry.dispose();
     }
     for (const m of this.materials.values()) m.dispose();
+    for (const t of this.materialTextures.values()) t.tex.dispose();
     this.edgeMaterial.dispose();
     this.selectedEdgeMaterial.dispose();
     this.softEdgeMaterial.dispose();
     this.selectedSoftEdgeMaterial.dispose();
   }
 
-  private syncMaterials(doc: Document, xray: boolean): void {
+  private syncMaterials(doc: Document, xray: boolean, textures: boolean): void {
     const live = new Set<MaterialId>();
     for (const m of doc.materials) {
       live.add(m.id);
@@ -136,7 +149,14 @@ export class SceneSync {
         });
         this.materials.set(m.id, mat);
       }
-      mat.color.setRGB(m.color[0], m.color[1], m.color[2], THREE.SRGBColorSpace);
+      const map = textures ? this.textureFor(doc, m) : null;
+      if (mat.map !== map) {
+        mat.map = map;
+        mat.needsUpdate = true;
+      }
+      // A texture shows as it is; the colour is for untextured materials.
+      if (map) mat.color.setRGB(1, 1, 1);
+      else mat.color.setRGB(m.color[0], m.color[1], m.color[2], THREE.SRGBColorSpace);
       if (mat.transparent !== xray) {
         mat.transparent = xray;
         mat.opacity = xray ? 0.35 : 1;
@@ -150,6 +170,51 @@ export class SceneSync {
         this.materials.delete(id);
       }
     }
+    for (const [id, t] of this.materialTextures) {
+      if (!live.has(id) || doc.findMaterial(id)?.texture !== t.textureId) {
+        t.tex.dispose();
+        this.materialTextures.delete(id);
+      }
+    }
+    for (const [id] of this.images) if (!doc.findTexture(id)) this.images.delete(id);
+  }
+
+  /** The material's texture, repeating every `textureSize` world units, or null if it has none. */
+  private textureFor(doc: Document, m: Material): THREE.Texture | null {
+    const asset = doc.materialTexture(m);
+    if (!asset) return null;
+    const image = this.image(asset.id, asset.data);
+    let entry = this.materialTextures.get(m.id);
+    if (entry?.textureId !== asset.id) {
+      entry?.tex.dispose();
+      const tex = new THREE.Texture(image.img);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      tex.needsUpdate = image.loaded;
+      entry = { textureId: asset.id, tex };
+      this.materialTextures.set(m.id, entry);
+    }
+    const [w, h] = m.textureSize ?? DEFAULT_TEXTURE_SIZE;
+    entry.tex.repeat.set(1 / w, 1 / h);
+    return entry.tex;
+  }
+
+  private image(id: TextureId, data: string): ImageEntry {
+    let e = this.images.get(id);
+    if (e?.data === data) return e;
+    const img = new Image();
+    e = { data, img, loaded: false };
+    const entry = e;
+    img.onload = () => {
+      entry.loaded = true;
+      for (const t of this.materialTextures.values()) if (t.textureId === id) t.tex.needsUpdate = true;
+      this.onTextureLoaded();
+    };
+    img.src = data;
+    this.images.set(id, e);
+    return e;
   }
 
   private createEntry(obj: SceneObject): Entry {

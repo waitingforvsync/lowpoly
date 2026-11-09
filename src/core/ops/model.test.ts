@@ -134,6 +134,16 @@ describe('pushPull', () => {
     }
   });
 
+  it('extends the side textures when stretching (texture lock), instead of stretching them', () => {
+    const r = pushPull(fromMeshData(cubeData()), [1], 1);
+    // Front face UVs were (0,0) (1,0) (1,1) (0,1) on a unit square; now it's 2 tall.
+    expect(uvAt(r.mesh, 2, 5)).toEqual([1, 2]);
+    expect(uvAt(r.mesh, 2, 4)).toEqual([0, 2]);
+    expect(uvAt(r.mesh, 2, 1)).toEqual([1, 0]);
+    const off = pushPull(fromMeshData(cubeData()), [1], 1, { textureLock: false });
+    expect(uvAt(off.mesh, 2, 5)).toEqual([1, 1]);
+  });
+
   it('turns a free-standing rectangle into a box', () => {
     for (const d of [1, -1]) {
       const r = pushPull(fromMeshData(quadData()), [0], d);

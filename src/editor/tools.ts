@@ -33,7 +33,7 @@ export const TOOLS: readonly ToolDef[] = [
   { id: 'loopcut', label: 'Loop Cut', code: 'KeyK', key: 'K', hint: 'Hover an edge to preview a loop cut, then click to cut.' },
   { id: 'line', label: 'Line', code: 'KeyL', key: 'L', hint: 'Click to place points. Closing a loop makes a face.' },
   { id: 'rectangle', label: 'Rectangle', code: 'KeyR', key: 'R', hint: 'Click two corners to draw a rectangle on the ground or a face.' },
-  { id: 'paint', label: 'Paint', code: 'KeyB', key: 'B', hint: 'Click faces to apply the active material. Alt+click samples a material.' },
+  { id: 'paint', label: 'Paint', code: 'KeyB', key: 'B', hint: 'Click a face to paint it (a selected face paints the selection). Ctrl: connected faces of that material; Shift: all of its faces on the object. Alt+click samples.' },
 ];
 
 export function toolById(id: ToolId): ToolDef {

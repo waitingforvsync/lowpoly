@@ -46,7 +46,7 @@ export function pushPull(
     const group = groupIds.map((id) => current.face(id));
     const n = groupNormal(group);
     const offset = scale(n, distance);
-    if (tryStretch(current, group, offset)) continue;
+    if (tryStretch(current, group, offset, opts.textureLock ?? true)) continue;
 
     const before = new Set(current.faces.keys());
     const baseVerts = new Set<Vertex>();
@@ -100,9 +100,11 @@ function groupNormal(group: Face[]): Vec3 {
 
 /**
  * Move the group's vertices if every other face touching them is perpendicular to the move (so
- * those faces simply stretch). Returns false, changing nothing, when that doesn't apply.
+ * those faces simply stretch). Returns false, changing nothing, when that doesn't apply. With
+ * texture lock, the stretched faces' UVs are extended rather than stretched: the moved corners
+ * get UVs from each face's existing mapping.
  */
-function tryStretch(mesh: HalfEdgeMesh, group: Face[], offset: Vec3): boolean {
+function tryStretch(mesh: HalfEdgeMesh, group: Face[], offset: Vec3, textureLock: boolean): boolean {
   const inGroup = new Set(group);
   const verts = new Set<Vertex>();
   for (const f of group) for (const h of f.halfEdges()) verts.add(h.origin);
@@ -120,11 +122,22 @@ function tryStretch(mesh: HalfEdgeMesh, group: Face[], offset: Vec3): boolean {
   if (!touching.size) return false;
   for (const f of touching) if (Math.abs(dot(f.normal(), dir)) > PERP_EPS) return false;
 
+  const maps = textureLock
+    ? [...touching].map((f) => {
+        const hs = [...f.halfEdges()];
+        return { hs, map: faceUVMap(hs.map((h) => h.origin.pos), hs.map((h) => h.uv)) };
+      })
+    : [];
   const before = new Map([...verts].map((v) => [v, v.pos] as const));
   for (const v of verts) v.pos = add(v.pos, offset);
-  if ([...touching].every(isFacePlanar)) return true;
-  for (const [v, p] of before) v.pos = p;
-  return false;
+  if (![...touching].every(isFacePlanar)) {
+    for (const [v, p] of before) v.pos = p;
+    return false;
+  }
+  for (const { hs, map } of maps) {
+    if (map) for (const h of hs) if (verts.has(h.origin)) h.uv = map(h.origin.pos);
+  }
+  return true;
 }
 
 /**

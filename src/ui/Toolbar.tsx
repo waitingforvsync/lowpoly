@@ -5,6 +5,7 @@ import {
   gridStep,
   projection,
   selectionMode,
+  showTextures,
   snapEnabled,
   textureLock,
   transformSpace,
@@ -149,6 +150,9 @@ export function Toolbar() {
           onClick={() => (textureLock.value = !textureLock.value)}
         >
           Tex Lock
+        </Button>
+        <Button title="Show image textures (off: plain material colours)" active={showTextures.value} onClick={() => (showTextures.value = !showTextures.value)}>
+          Textures
         </Button>
       </Group>
 

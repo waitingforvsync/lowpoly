@@ -20,7 +20,18 @@ import {
   selectedObjects,
   type ComponentMode,
 } from '../editor/selection';
-import { activeTool, gridStep, insetMode, rotationStep, selectionMode, snapEnabled, textureLock } from '../editor/state';
+import {
+  activeMaterial,
+  activeTool,
+  gridStep,
+  insetMode,
+  rotationStep,
+  selectionMode,
+  snapEnabled,
+  textureLock,
+} from '../editor/state';
+import { paintMaterial } from '../editor/materialActions';
+import type { ProjectionKind } from '../core/uv/uvops';
 import {
   connectSelection,
   extrudeSelection,
@@ -28,8 +39,10 @@ import {
   insetSelection,
   makeFaceFromSelection,
   makeHoleSelection,
+  projectUVSelection,
   pushPullSelection,
   recalcNormalsSelection,
+  transformUVSelection,
   subdivideSelection,
   triangulateSelection,
 } from '../editor/modelActions';
@@ -134,6 +147,7 @@ function ObjectProps({ obj }: { obj: SceneObject }) {
         </dd>
       </dl>
       <NormalsButtons />
+      <UVSection enabled />
       {obj.source && <PrimitiveProps id={obj.id} source={obj.source} />}
     </>
   );
@@ -190,6 +204,7 @@ function MultiProps({ ids }: { ids: number[] }) {
         </dd>
       </dl>
       <NormalsButtons />
+      <UVSection enabled />
     </>
   );
 }
@@ -360,6 +375,7 @@ function ModelOps({ mode, count }: { mode: ComponentMode; count: number }) {
             </OpButton>
           </div>
           <NormalsButtons disabled={!count} />
+          <UVSection enabled={count > 0} />
         </>
       )}
       {mode === 'edge' && (
@@ -462,6 +478,57 @@ function NormalsButtons({ disabled }: { disabled?: boolean }) {
   );
 }
 
+// UV command parameters. UI state only.
+const uvScale = signal(1);
+const uvRotation = signal(0);
+const uvOffsetU = signal(0);
+const uvOffsetV = signal(0);
+
+const PROJECTIONS: { kind: ProjectionKind; label: string; title: string }[] = [
+  { kind: 'face', label: 'Per Face', title: 'Project each face onto its own plane: no stretching, seams between faces' },
+  { kind: 'box', label: 'Box', title: 'Project each face along the nearest world axis: continuous around boxy shapes' },
+  { kind: 'planar', label: 'Planar', title: 'Project every face onto one plane (their average normal): continuous, stretched on slopes' },
+];
+
+/** UV projection and adjustment for the selected faces, or whole objects in object mode. */
+function UVSection({ enabled }: { enabled: boolean }) {
+  const params = () => ({ scale: uvScale.value, rotation: uvRotation.value, offset: [uvOffsetU.value, uvOffsetV.value] as [number, number] });
+  return (
+    <>
+      <h3 class="subhead">UV</h3>
+      <dl class="props">
+        <dt title="2 makes the texture twice as big">Scale</dt>
+        <dd>
+          <NumberField value={uvScale.value} min={0.001} onCommit={(v) => (uvScale.value = v)} />
+        </dd>
+        <dt>Rotation°</dt>
+        <dd>
+          <NumberField value={uvRotation.value} onCommit={(v) => (uvRotation.value = v)} />
+        </dd>
+        <dt>Offset</dt>
+        <dd class="op-row">
+          <NumberField value={uvOffsetU.value} title="U offset" onCommit={(v) => (uvOffsetU.value = v)} />
+          <NumberField value={uvOffsetV.value} title="V offset" onCommit={(v) => (uvOffsetV.value = v)} />
+        </dd>
+      </dl>
+      <div class="button-row">
+        {PROJECTIONS.map((p) => (
+          <OpButton key={p.kind} title={`${p.title}. Then applies scale, rotation and offset.`} disabled={!enabled} onClick={() => projectUVSelection(p.kind, params())}>
+            {p.label}
+          </OpButton>
+        ))}
+        <OpButton
+          title="Scale and rotate the current UVs about their centre, then offset them"
+          disabled={!enabled}
+          onClick={() => transformUVSelection(params())}
+        >
+          Transform
+        </OpButton>
+      </div>
+    </>
+  );
+}
+
 function InsetModeButtons() {
   return (
     <span class="segmented">
@@ -482,6 +549,20 @@ function InsetModeButtons() {
         Hole
       </button>
     </span>
+  );
+}
+
+function PaintMaterialSelect() {
+  const doc = useDoc();
+  void activeMaterial.value;
+  return (
+    <select class="field" value={String(paintMaterial())} onChange={(e) => (activeMaterial.value = Number(e.currentTarget.value))}>
+      {doc.materials.map((m) => (
+        <option key={m.id} value={String(m.id)}>
+          {m.name}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -536,6 +617,14 @@ function ToolOptions() {
             <dt title="New walls continue the texture of the face beside them">Texture lock</dt>
             <dd>
               <input type="checkbox" checked={textureLock.value} onChange={(e) => (textureLock.value = e.currentTarget.checked)} />
+            </dd>
+          </>
+        )}
+        {tool.id === 'paint' && (
+          <>
+            <dt title="Click a material in the outliner, or Alt+click a face, to change it">Material</dt>
+            <dd>
+              <PaintMaterialSelect />
             </dd>
           </>
         )}

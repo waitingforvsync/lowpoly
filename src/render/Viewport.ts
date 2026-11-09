@@ -13,6 +13,7 @@ import { transformToMatrix } from './transformMath';
 import type { ObjectId } from '../core/document';
 import type { Vec3 } from '../core/math/vec';
 import { editor } from '../editor/editor';
+import { paintFaces, sampleMaterial } from '../editor/materialActions';
 import { isComponentMode } from '../editor/modes';
 import {
   addToSelection,
@@ -35,6 +36,7 @@ import {
   projection,
   rotationStep,
   selectionMode,
+  showTextures,
   snapEnabled,
   snapInvertHeld,
   transformSpace,
@@ -83,7 +85,7 @@ export class Viewport {
   private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   private readonly controls: OrbitControls;
   private readonly axes = new AxesIndicator();
-  private readonly sync = new SceneSync();
+  private readonly sync = new SceneSync(() => this.requestRender());
   private readonly overlay = new ComponentOverlay();
   private readonly gizmo: Gizmo;
   private readonly cursorMarker: THREE.Points;
@@ -185,7 +187,7 @@ export class Viewport {
         const mode = selectionMode.value;
         const comp = isComponentMode(mode);
         const xr = xray.value;
-        this.sync.sync(editor.doc, comp ? new Set() : selectedObjects.value, xr);
+        this.sync.sync(editor.doc, comp ? new Set() : selectedObjects.value, xr, showTextures.value);
         const targets: GizmoTargets = comp
           ? { kind: 'components', mode, selection: componentSelection[mode].value }
           : { kind: 'objects', ids: selectedObjects.value };
@@ -451,6 +453,7 @@ export class Viewport {
     }
     const p = this.localPoint(e);
     this.renderer.domElement.setPointerCapture(e.pointerId);
+    if (this.paint(p.x, p.y, e)) return;
     if (this.startFaceDrag(p.x, p.y)) return;
     this.press = { x: p.x, y: p.y, boxing: false };
   };
@@ -489,6 +492,26 @@ export class Viewport {
     this.faceDrag = tool === 'pushpull' ? new PushPullDrag(obj, faces, pressed, hit) : new InsetDrag(obj, faces, pressed, hit);
     this.hover = null;
     this.refreshOverlay();
+    return true;
+  }
+
+  /**
+   * Paint tool: click a face to apply the active material; with the face selected, the whole face
+   * selection. Ctrl: connected faces of the same material. Shift: every face of the object with
+   * that material. Alt: sample the face's material instead. A click off the model does nothing.
+   */
+  private paint(x: number, y: number, e: PointerEvent): boolean {
+    if (activeTool.peek() !== 'paint') return false;
+    const ref = pickComponent(this.pickEnv(), 'face', x, y);
+    if (!ref) return true;
+    const face = ref.key as number;
+    if (e.altKey) {
+      sampleMaterial(ref.objectId, face);
+      return true;
+    }
+    const selected = selectionMode.peek() === 'face' ? componentSelection.face.peek().get(ref.objectId) : undefined;
+    if (!e.ctrlKey && !e.shiftKey && selected?.has(face)) paintFaces(ref.objectId, [...selected].map(Number), 'face');
+    else paintFaces(ref.objectId, [face], e.ctrlKey || e.metaKey ? 'connected' : e.shiftKey ? 'same' : 'face');
     return true;
   }
 

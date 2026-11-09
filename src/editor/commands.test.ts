@@ -4,6 +4,7 @@ import { fromMeshData } from '../core/halfedge/convert';
 import { buildPrimitive, defaultSource } from '../core/primitives';
 import {
   AddMaterialCommand,
+  AddTextureCommand,
   AddObjectsCommand,
   assignObjectMaterialCommand,
   type CommandContext,
@@ -31,7 +32,7 @@ function setup(n = 3) {
  */
 function roundTrip(doc: Document, cmd: { apply(): void; revert(): void }) {
   const state = () => {
-    const { nextObjectId: _o, nextMaterialId: _m, ...rest } = serializeDocument(doc);
+    const { nextObjectId: _o, nextMaterialId: _m, nextTextureId: _t, ...rest } = serializeDocument(doc);
     return rest;
   };
   const before = state();
@@ -124,6 +125,26 @@ describe('material commands', () => {
     roundTrip(doc, cmd);
     expect(doc.findMaterial(1)).toBeUndefined();
     expect([...doc.object(1).mesh.faces.values()].every((f) => f.material === 0)).toBe(true);
+  });
+
+  it('AddTextureCommand plus SetMaterialPropsCommand set and clear a texture', () => {
+    const { doc, ctx } = setup(0);
+    const tex = { id: 0, name: 'brick.png', mime: 'image/png', data: 'data:image/png;base64,AAAA', width: 2, height: 2 };
+    const add = new AddTextureCommand(ctx, tex);
+    add.apply();
+    expect(doc.findTexture(0)?.name).toBe('brick.png');
+    add.revert();
+    expect(doc.textures).toEqual([]);
+    add.apply();
+    roundTrip(doc, new SetMaterialPropsCommand(ctx, 0, { texture: 0, textureSize: [2, 1] }, 'Texture'));
+    const set = new SetMaterialPropsCommand(ctx, 0, { texture: 0 }, 'Texture');
+    set.apply();
+    expect(doc.materialTexture(doc.findMaterial(0)!)?.name).toBe('brick.png');
+    const clear = new SetMaterialPropsCommand(ctx, 0, { texture: null }, 'Clear Texture');
+    clear.apply();
+    expect(doc.findMaterial(0)!.texture).toBeUndefined();
+    clear.revert();
+    expect(doc.findMaterial(0)!.texture).toBe(0);
   });
 
   it('refuses to remove the default material', () => {

@@ -227,3 +227,45 @@ way (with what they taught). Newest entries at the bottom of each milestone. See
   *Lesson (repeated from M3): print the screen geometry before assuming the app is broken.*
 - The first heredoc-based patch script failed on quoting; script files written with the file tool
   are more reliable for multi-line patches (same lesson as M0's `launch.json`).
+
+---
+
+## M5 — Materials and texturing
+
+### Decisions
+- **Textures are embedded as data URLs** in a document-level `textures` list, referenced by id from
+  materials. Saving keeps only textures some material uses; unused ones stay in memory so undo can
+  bring them back. Images over 2048 px are scaled down on import to keep documents a sensible size.
+  The format stays v1: the new fields are optional, so older files load unchanged.
+- **Texture scale lives on the material** (`textureSize`, the world size of one image repeat), not in
+  the UVs. UVs are already in world units, so a brick texture can be made "0.5 m per tile" once and every
+  face using it agrees, including faces created later by modelling ops. Rendering uses one
+  `THREE.Texture` per material with `repeat = 1 / textureSize`, sharing one decoded image per asset.
+- **A textured material shows its texture untinted.** The colour is still kept and used when there's
+  no texture, or when the Textures display toggle is off.
+- **Paint follows SketchUp:** click paints a face (or the face selection, if the clicked face is in
+  it); Ctrl paints the edge-connected faces sharing the clicked face's material (a fill); Shift paints
+  every face of the object with that material (a replace); Alt samples. The active material is
+  chosen by clicking it in the outliner, which also shows its texture settings.
+- **UV commands:** Per Face (each face on its own plane: no stretch, seams), Box (nearest world axis
+  per face: continuous around boxy shapes), Planar (one plane for all: continuous, stretched on
+  slopes), and Transform (scale/rotate the current UVs about their centre, then offset). All take
+  the same scale/rotation/offset fields. They work on selected faces, or whole objects in object mode.
+- **Material property undo uses `null` for "unset"**, so undoing a change to a material that never had
+  a texture size leaves it without one, rather than writing the default explicitly.
+- **Texture lock now covers Push/Pull's stretch case:** faces that stretch get UVs for their moved
+  corners from their own existing mapping, so a pulled-up textured box keeps square tiles instead of
+  smearing them. (Walls already continued their neighbour's texture in M4.)
+
+### Mistakes
+- **Undo wasn't exact for material properties.** The first version of `SetMaterialPropsCommand`
+  captured "before" with defaults filled in, so undo wrote `textureSize: [1, 1]` onto a material that
+  never had one. The command round-trip test caught it; fixed with `null` = unset.
+- **Signals subscription, again.** The outliner's material details read the active material through
+  a helper that uses `peek()`, so clicking a material didn't refresh them. Same lesson as M3's
+  `useDoc()`: each component must read (`.value`) the signals it displays itself.
+- **Test-script error:** Playwright's `mouse.click` has no `modifiers` option (only `locator.click`
+  does), so my Shift-/Alt-clicks were plain clicks and looked like the paint scopes were broken.
+  Holding keys with `keyboard.down/up` fixed the script; the app was right.
+- **Windows line endings from patch scripts.** Python's text mode wrote CRLF into files I patched in
+  M4, which git normalised on commit with warnings. Patch scripts now open files with `newline=''`.
