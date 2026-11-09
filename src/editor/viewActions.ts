@@ -15,6 +15,11 @@ export function attachViewport(vp: Viewport | null): void {
   viewport = vp;
 }
 
+/** The live viewport, if one is mounted. */
+export function currentViewport(): Viewport | null {
+  return viewport;
+}
+
 export function setStandardView(view: StandardView): void {
   viewport?.setStandardView(view);
 }

@@ -1,6 +1,6 @@
 import type { ObjectId, SceneObject } from '../core/document';
 import { fromMeshData, toMeshData } from '../core/halfedge/convert';
-import type { HalfEdgeMesh } from '../core/halfedge/mesh';
+import { HalfEdgeMesh } from '../core/halfedge/mesh';
 import type { Vec3 } from '../core/math/vec';
 import type { MaterialId } from '../core/meshdata';
 import { deleteEdges, deleteFaces, deleteVerts } from '../core/ops/delete';
@@ -25,35 +25,56 @@ import { transformPoint, inverseTransformPoint } from './transformPoints';
 
 const MERGE_DISTANCE = 1e-4;
 
-function selectedEntries(mode: ComponentMode): [SceneObject, ReadonlySet<ElementKey>][] {
+export function selectedEntries(mode: ComponentMode): [SceneObject, ReadonlySet<ElementKey>][] {
   const doc = editor.doc;
   return [...componentSelection[mode].value]
     .map(([id, keys]) => [doc.findObject(id), keys] as const)
     .filter((e): e is [SceneObject, ReadonlySet<ElementKey>] => !!e[0] && e[1].size > 0);
 }
 
+/** What an edit produced: a replacement mesh (or the edited copy), and what to select after. */
+export interface EditOutcome {
+  mesh?: HalfEdgeMesh;
+  select?: ElementKey[];
+}
+
 /**
  * Run a topology-changing edit on a copy of each object's mesh, and record the results as one
- * undo step. An object whose edit throws is left unchanged and the reason reported.
+ * undo step. An object whose edit throws is left unchanged and the reason reported. When
+ * `selectMode` is given, the elements each edit returns in `select` become the selection in that
+ * mode (and redo restores it). Returns whether anything changed.
  */
-function editMeshes(
+export function editMeshes(
   label: string,
   objects: [SceneObject, ReadonlySet<ElementKey>][],
-  edit: (mesh: HalfEdgeMesh, keys: ReadonlySet<ElementKey>) => HalfEdgeMesh | void,
+  edit: (mesh: HalfEdgeMesh, keys: ReadonlySet<ElementKey>) => HalfEdgeMesh | EditOutcome | void,
+  selectMode?: ComponentMode,
 ): boolean {
   const cmds: Command[] = [];
   const errors: string[] = [];
+  const selection = new Map<ObjectId, Set<ElementKey>>();
   for (const [obj, keys] of objects) {
     const before = ReplaceMeshCommand.capture(obj);
     const work = fromMeshData(before.mesh);
     try {
-      const result = edit(work, keys) ?? work;
-      cmds.push(new ReplaceMeshCommand(editor.ctx, obj.id, before, { mesh: toMeshData(result), source: null }, label));
+      const out = edit(work, keys);
+      const outcome: EditOutcome = out instanceof HalfEdgeMesh ? { mesh: out } : (out ?? {});
+      const after = toMeshData(outcome.mesh ?? work);
+      if (outcome.select) selection.set(obj.id, new Set(outcome.select));
+      // An edit that changed nothing doesn't become an undo step.
+      if (JSON.stringify(after) === JSON.stringify(before.mesh)) continue;
+      cmds.push(new ReplaceMeshCommand(editor.ctx, obj.id, before, { mesh: after, source: null }, label));
     } catch (e) {
       errors.push((e as Error).message);
     }
   }
-  if (cmds.length) editor.execute(cmds.length === 1 ? cmds[0]! : new CompositeCommand(label, cmds));
+  if (!cmds.length && selectMode && selection.size) setComponents(selectMode, selection);
+  if (cmds.length) {
+    editor.execute(
+      cmds.length === 1 ? cmds[0]! : new CompositeCommand(label, cmds),
+      selectMode && selection.size ? () => setComponents(selectMode, selection) : undefined,
+    );
+  }
   if (errors.length) showStatus(`${label}: ${errors[0]}`, 'error');
   return cmds.length > 0;
 }
@@ -94,17 +115,16 @@ export function dissolveComponents(mode: ComponentMode): void {
 export function mergeComponentsAtCenter(mode: ComponentMode): void {
   const entries = selectedEntries(mode);
   if (!entries.length) return;
-  const merged: [ObjectId, ElementKey][] = [];
-  editMeshes('Merge Vertices', entries, (mesh, keys) => {
-    const ids = verticesOf(mesh, mode, keys).map((v) => v.id);
-    if (ids.length < 2) return;
-    const out = mergeAtCenter(mesh, ids);
-    merged.push([entries.find(([, k]) => k === keys)![0].id, ids[0]!]);
-    return out;
-  });
-  if (mode === 'vertex' && merged.length) {
-    setComponents('vertex', new Map(merged.map(([id, v]) => [id, new Set([v])])));
-  }
+  editMeshes(
+    'Merge Vertices',
+    entries,
+    (mesh, keys) => {
+      const ids = verticesOf(mesh, mode, keys).map((v) => v.id);
+      if (ids.length < 2) return;
+      return { mesh: mergeAtCenter(mesh, ids), select: [ids[0]!] };
+    },
+    mode === 'vertex' ? 'vertex' : undefined,
+  );
 }
 
 export function mergeComponentsByDistance(mode: ComponentMode): void {

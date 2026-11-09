@@ -13,6 +13,7 @@ import {
 import { editor } from './editor';
 import { isComponentMode, setSelectionMode } from './modes';
 import { clearComponents } from './selection';
+import { connectSelection, makeFaceFromSelection } from './modelActions';
 import { openDocument, saveDocument } from '../io/file';
 import type { StandardView } from '../render/Viewport';
 
@@ -63,6 +64,7 @@ const CTRL_SHORTCUTS: Record<string, () => void> = {
   KeyS: () => void saveDocument(),
   'S+KeyS': () => void saveDocument(true),
   KeyO: () => void openDocument(),
+  KeyF: byMode(null, makeFaceFromSelection),
 };
 
 /** Plain-key shortcuts (no modifiers). */
@@ -74,6 +76,7 @@ const PLAIN_SHORTCUTS: Record<string, () => void> = {
   Escape: byMode(selectNone, (m) => clearComponents(m)),
   Delete: byMode(deleteSelection, deleteComponents),
   Backspace: byMode(deleteSelection, dissolveComponents),
+  KeyJ: byMode(null, connectSelection),
 };
 
 const REPEATABLE = new Set(['KeyZ', 'KeyY']);

@@ -1,4 +1,5 @@
-import { Fragment } from 'preact';
+import { Fragment, type ComponentChildren } from 'preact';
+import { signal } from '@preact/signals';
 import { cloneTransform, type SceneObject } from '../core/document';
 import { PRIMITIVES, type PrimitiveSource } from '../core/primitives';
 import {
@@ -19,7 +20,19 @@ import {
   selectedObjects,
   type ComponentMode,
 } from '../editor/selection';
-import { activeTool, gridStep, rotationStep, selectionMode, snapEnabled } from '../editor/state';
+import { activeTool, gridStep, insetMode, rotationStep, selectionMode, snapEnabled, textureLock } from '../editor/state';
+import {
+  connectSelection,
+  extrudeSelection,
+  flipSelection,
+  insetSelection,
+  makeFaceFromSelection,
+  makeHoleSelection,
+  pushPullSelection,
+  recalcNormalsSelection,
+  subdivideSelection,
+  triangulateSelection,
+} from '../editor/modelActions';
 import {
   assignMaterialToFaces,
   componentCentroid,
@@ -120,6 +133,7 @@ function ObjectProps({ obj }: { obj: SceneObject }) {
           {m.verts.size} verts · {m.edgeCount} edges · {m.faces.size} faces
         </dd>
       </dl>
+      <NormalsButtons />
       {obj.source && <PrimitiveProps id={obj.id} source={obj.source} />}
     </>
   );
@@ -175,6 +189,7 @@ function MultiProps({ ids }: { ids: number[] }) {
           <MaterialSelect ids={ids} />
         </dd>
       </dl>
+      <NormalsButtons />
     </>
   );
 }
@@ -287,7 +302,186 @@ function ComponentProps({ mode }: { mode: ComponentMode }) {
           Weld
         </button>
       </div>
+      <ModelOps mode={mode} count={count} />
     </>
+  );
+}
+
+// Values for the numeric modelling commands. UI state only; kept between selections.
+const pushDistance = signal(0.5);
+const extrudeDistance = signal(0.5);
+const insetAmount = signal(0.1);
+const subdivideCuts = signal(1);
+
+/** Modelling operations for the component mode (M4). */
+function ModelOps({ mode, count }: { mode: ComponentMode; count: number }) {
+  return (
+    <>
+      <h3 class="subhead">Model</h3>
+      {mode === 'face' && (
+        <>
+          <dl class="props">
+            <OpRow
+              label="Push/Pull"
+              title="Move the faces along their normals, building walls (P for the tool)"
+              disabled={!count}
+              value={pushDistance.value}
+              onValue={(v) => (pushDistance.value = v)}
+              onApply={() => pushPullSelection(pushDistance.value)}
+            />
+            <OpRow
+              label="Extrude"
+              title="Extrude the faces along their normals (E for the tool)"
+              disabled={!count}
+              value={extrudeDistance.value}
+              onValue={(v) => (extrudeDistance.value = v)}
+              onApply={() => extrudeSelection(extrudeDistance.value)}
+            />
+            <OpRow
+              label="Inset"
+              title="Inset each face (I for the tool)"
+              disabled={!count}
+              min={0.0001}
+              value={insetAmount.value}
+              onValue={(v) => (insetAmount.value = v)}
+              onApply={() => insetSelection(insetAmount.value)}
+            />
+            <dt>Inset as</dt>
+            <dd>
+              <InsetModeButtons />
+            </dd>
+          </dl>
+          <div class="button-row">
+            <OpButton title="Cut each face out of the coplanar face around it" disabled={!count} onClick={makeHoleSelection}>
+              Make Hole
+            </OpButton>
+            <OpButton title="Triangulate the faces" disabled={!count} onClick={triangulateSelection}>
+              Triangulate
+            </OpButton>
+          </div>
+          <NormalsButtons disabled={!count} />
+        </>
+      )}
+      {mode === 'edge' && (
+        <dl class="props">
+          <OpRow
+            label="Subdivide"
+            title="Split each edge into equal pieces (number of cuts)"
+            disabled={!count}
+            integer
+            min={1}
+            value={subdivideCuts.value}
+            onValue={(v) => (subdivideCuts.value = v)}
+            onApply={() => subdivideSelection(subdivideCuts.value)}
+          />
+        </dl>
+      )}
+      {mode !== 'face' && (
+        <div class="button-row">
+          <OpButton
+            title={
+              mode === 'vertex'
+                ? 'Split faces between the selected vertices (J)'
+                : 'Cut the edges in half and connect the midpoints across their faces (J)'
+            }
+            disabled={!count}
+            onClick={() => connectSelection(mode)}
+          >
+            Connect
+          </OpButton>
+          <OpButton title="Make a face from the selected outline (Ctrl+F)" disabled={!count} onClick={() => makeFaceFromSelection(mode)}>
+            Make Face
+          </OpButton>
+        </div>
+      )}
+    </>
+  );
+}
+
+function OpRow(props: {
+  label: string;
+  title: string;
+  value: number;
+  disabled: boolean;
+  min?: number;
+  integer?: boolean;
+  onValue: (v: number) => void;
+  onApply: () => void;
+}) {
+  return (
+    <>
+      <dt title={props.title}>{props.label}</dt>
+      <dd class="op-row">
+        <NumberField value={props.value} min={props.min} integer={props.integer} title={props.title} onCommit={props.onValue} />
+        <OpButton title={props.title} disabled={props.disabled} onClick={props.onApply}>
+          Apply
+        </OpButton>
+      </dd>
+    </>
+  );
+}
+
+function OpButton({
+  title,
+  disabled,
+  onClick,
+  children,
+}: {
+  title: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: ComponentChildren;
+}) {
+  return (
+    <button type="button" class="tb-button" title={title} disabled={disabled} onClick={onClick}>
+      {children}
+    </button>
+  );
+}
+
+/** Flip / recalculate normals: whole objects in object mode, the touched parts in face mode. */
+function NormalsButtons({ disabled }: { disabled?: boolean }) {
+  return (
+    <div class="button-row">
+      <OpButton title="Reverse the faces of each connected part touched by the selection" disabled={disabled} onClick={flipSelection}>
+        Flip
+      </OpButton>
+      <OpButton
+        title="Turn each connected part touched by the selection to face outward"
+        disabled={disabled}
+        onClick={recalcNormalsSelection}
+      >
+        Recalc Normals
+      </OpButton>
+      {selectionMode.value === 'object' && (
+        <OpButton title="Triangulate every face" disabled={disabled} onClick={triangulateSelection}>
+          Triangulate
+        </OpButton>
+      )}
+    </div>
+  );
+}
+
+function InsetModeButtons() {
+  return (
+    <span class="segmented">
+      <button
+        type="button"
+        class={insetMode.value === 'ring' ? 'tb-button active' : 'tb-button'}
+        title="A ring of quads joins the inset face to its old outline"
+        onClick={() => (insetMode.value = 'ring')}
+      >
+        Ring
+      </button>
+      <button
+        type="button"
+        class={insetMode.value === 'hole' ? 'tb-button active' : 'tb-button'}
+        title="The old face becomes a frame, with the inset face filling its hole (SketchUp's Offset)"
+        onClick={() => (insetMode.value = 'hole')}
+      >
+        Hole
+      </button>
+    </span>
   );
 }
 
@@ -337,6 +531,22 @@ function ToolOptions() {
         <dd>
           <NumberField value={rotationStep.value} min={0.1} onCommit={(v) => (rotationStep.value = v)} />
         </dd>
+        {(tool.id === 'pushpull' || tool.id === 'extrude') && (
+          <>
+            <dt title="New walls continue the texture of the face beside them">Texture lock</dt>
+            <dd>
+              <input type="checkbox" checked={textureLock.value} onChange={(e) => (textureLock.value = e.currentTarget.checked)} />
+            </dd>
+          </>
+        )}
+        {tool.id === 'inset' && (
+          <>
+            <dt>Inset as</dt>
+            <dd>
+              <InsetModeButtons />
+            </dd>
+          </>
+        )}
       </dl>
     </>
   );

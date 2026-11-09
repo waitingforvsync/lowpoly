@@ -5,6 +5,7 @@ import { AxesIndicator } from './AxesIndicator';
 import { COLORS } from './colors';
 import { ComponentOverlay } from './ComponentOverlay';
 import { Gizmo, type GizmoTargets } from './Gizmo';
+import { type FaceDrag, InsetDrag, localFaceHit, PushPullDrag } from './FaceDrag';
 import { createGrid } from './grid';
 import { boxComponents, boxObjects, pickComponent, type PickEnv, type Rect } from './Picker';
 import { SceneSync } from './SceneSync';
@@ -101,6 +102,8 @@ export class Viewport {
   /** Left-button press in progress (null if none, or if it grabbed the gizmo). */
   private press: Press | null = null;
   private hover: ComponentRef | null = null;
+  /** Push/Pull or Inset drag in progress. */
+  private faceDrag: FaceDrag | null = null;
 
   constructor(private readonly container: HTMLElement) {
     THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
@@ -160,6 +163,9 @@ export class Viewport {
     canvas.addEventListener('pointerdown', this.onPointerDown);
     canvas.addEventListener('pointerup', this.onPointerUp);
     canvas.addEventListener('pointercancel', this.onPointerCancel);
+    // Capture phase, so Esc cancels a drag before the global shortcuts see it.
+    window.addEventListener('keydown', this.onKeyDown, true);
+    this.disposers.push(() => window.removeEventListener('keydown', this.onKeyDown, true));
     this.disposers.push(() => {
       canvas.removeEventListener('pointermove', this.onPointerMove);
       canvas.removeEventListener('pointerleave', this.onPointerLeave);
@@ -244,6 +250,12 @@ export class Viewport {
     }
     this.controls.update();
     this.requestRender();
+  }
+
+  /** Canvas pixel position of a world-space point (also used by browser tests). */
+  worldToScreen(p: Vec3): { x: number; y: number } {
+    const v = new THREE.Vector3(...p).project(this.camera);
+    return { x: ((v.x + 1) / 2) * this.width, y: ((1 - v.y) / 2) * this.height };
   }
 
   /** Where new objects appear: the orbit target dropped onto the ground, snapped to the grid. */
@@ -385,7 +397,7 @@ export class Viewport {
   private updateHover(): void {
     const mode = selectionMode.peek();
     let next: ComponentRef | null = null;
-    if (isComponentMode(mode) && this.lastPointer && !this.press && !this.gizmo.dragging) {
+    if (isComponentMode(mode) && this.lastPointer && !this.press && !this.faceDrag && !this.gizmo.dragging) {
       next = pickComponent(this.pickEnv(), mode, this.lastPointer.x, this.lastPointer.y);
     }
     if (next?.objectId !== this.hover?.objectId || next?.key !== this.hover?.key) {
@@ -404,6 +416,15 @@ export class Viewport {
   private readonly onPointerMove = (e: PointerEvent): void => {
     this.lastPointer = this.localPoint(e);
     this.updateCursor();
+
+    if (this.faceDrag) {
+      this.faceDrag.move({
+        ray: this.worldRay(this.lastPointer.x, this.lastPointer.y),
+        snap: isSnapActive(snapEnabled.peek(), snapInvertHeld.peek()),
+        gridStep: gridStep.peek(),
+      });
+      return;
+    }
 
     const press = this.press;
     if (press) {
@@ -429,16 +450,61 @@ export class Viewport {
       return;
     }
     const p = this.localPoint(e);
-    this.press = { x: p.x, y: p.y, boxing: false };
     this.renderer.domElement.setPointerCapture(e.pointerId);
+    if (this.startFaceDrag(p.x, p.y)) return;
+    this.press = { x: p.x, y: p.y, boxing: false };
   };
 
   private readonly onPointerCancel = (): void => {
     this.press = null;
     this.boxEl.hidden = true;
+    this.faceDrag?.cancel();
+    this.faceDrag = null;
   };
 
+  private readonly onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape' && this.faceDrag) {
+      this.faceDrag.cancel();
+      this.faceDrag = null;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  };
+
+  /**
+   * With the Push/Pull or Inset tool, a press on a face starts a drag. If the face is part of
+   * the face selection, the whole selection (on that object) is used.
+   */
+  private startFaceDrag(x: number, y: number): boolean {
+    const tool = activeTool.peek();
+    if (tool !== 'pushpull' && tool !== 'inset') return false;
+    const ref = pickComponent(this.pickEnv(), 'face', x, y);
+    if (!ref) return false;
+    const obj = editor.doc.findObject(ref.objectId);
+    const pressed = ref.key as number;
+    const hit = obj && localFaceHit(obj, pressed, this.worldRay(x, y));
+    if (!obj || !hit) return false;
+    const selected = selectionMode.peek() === 'face' ? componentSelection.face.peek().get(obj.id) : undefined;
+    const faces = selected?.has(pressed) ? [...selected].map(Number) : [pressed];
+    this.faceDrag = tool === 'pushpull' ? new PushPullDrag(obj, faces, pressed, hit) : new InsetDrag(obj, faces, pressed, hit);
+    this.hover = null;
+    this.refreshOverlay();
+    return true;
+  }
+
+  private worldRay(x: number, y: number): THREE.Ray {
+    this.raycaster.setFromCamera(this.ndc(x, y), this.camera);
+    return this.raycaster.ray.clone();
+  }
+
   private readonly onPointerUp = (e: PointerEvent): void => {
+    if (e.button === 0 && this.faceDrag) {
+      const drag = this.faceDrag;
+      this.faceDrag = null;
+      drag.finish();
+      this.updateHover();
+      return;
+    }
     const press = this.press;
     if (e.button !== 0 || !press) return;
     this.press = null;

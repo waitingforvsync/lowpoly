@@ -107,6 +107,12 @@ They rebuild affected faces through `addFace`/`removeFace` and roll back on fail
 | `dissolve.ts` | `dissolveVertex`, `dissolveEdges`, `dissolveFaces` | Merges faces to keep the surface closed. Refuses non-coplanar results. A two-edge vertex is just removed from its faces |
 | `merge.ts` | `mergeVertexGroups`, `mergeAtCenter`, `mergeByDistance` | Welds via `MeshData` and rebuilds (fully validated). Folds bent faces afterwards. Returns a **new** mesh |
 | `planarize.ts` | `planarizeAround(mesh, movedVerts)`, `planarizeFaces` | Folds bent faces into planar pieces (cut off moved runs → cut off unmoved runs → triangulate and merge). Fold edges are hard |
+| `extrude.ts` | `extrudeFaces(mesh, ids, offset, {textureLock})`, `extrudeAlongNormals`, `extrudeEdges`, `extrudeVerts` → `{mesh, vertMap}`; helpers `regions`, `reverseLoop`, `dropUnusedVerts`, `rebuild` | Faces extrude as edge-connected regions, with walls on every boundary edge (hole outlines too); the faces keep their ids. A free-standing sheet is closed into a solid (a reversed base is left behind; flipped if pulled backwards). Edges need a free side (open boundary or wire). Vertices extrude to wire edges. Works on `MeshData`, returns a **new** mesh |
+| `pushpull.ts` | `pushPull(mesh, ids, distance, opts)` → `{mesh, faces}` | SketchUp Push/Pull on coplanar groups: **stretch** when every face around is perpendicular; otherwise extrude, then merge walls into same-facing coplanar neighbours and dissolve straight-through vertices. Pushing flat against an opposite face cuts a **tunnel** (hole) |
+| `inset.ts` | `insetFaces(mesh, ids, amount, 'ring' \| 'hole')`, `offsetLoop` | Per-face inset with miter offsets. `ring`: ring of quads, holes inset too. `hole`: SketchUp Offset, the old face becomes a frame around the inset face. Refuses amounts that turn edges around. New corners continue the face's UVs |
+| `connect.ts` | `connectVertices(mesh, verts)`, `subdivideEdges(mesh, edges, cuts)` | Connect splits faces between consecutive selected corners. Both edit in place and return new edge keys |
+| `faces.ts` | `makeFace(mesh, {edges} \| {verts})`, `makeHole(mesh, inner)`, `triangulateFaces`, `faceContains` | Make face: from one edge cycle, or vertices (cycle order if joined by edges, else by angle); winding follows free half-edges, else faces away from the mesh centre. Make hole: a coplanar inner face becomes a filled hole of the face around it |
+| `normals.ts` | `shells`, `shellOrientation`, `flipNormals(mesh, ids?)`, `recalculateNormals(mesh, ids?)` | Orientation is per **shell** (neighbours always wind consistently), so these flip whole edge-connected shells. Recalc uses the signed volume about the shell's centre |
 
 ### `triangulate.ts`
 `triangulatePolygon(loops: Vec3[][]) → number[]`: earcut in the best-fit plane, CCW triangles.
@@ -120,6 +126,12 @@ primitive is Z-up, sits on z = 0, faces outward and has world-unit UVs.
 
 ### `uv/project.ts`
 `planarAxes(normal)` and `planarUV(p, axes)`: world-unit planar projection. Vertical faces get +Z as up.
+
+### `uv/continue.ts` — texture lock
+`faceUVMap(points, uvs)`: least-squares affine map of a planar face's UVs (null if degenerate); used for
+inset corners and holes. `wallUVs(a, b, uvA, uvB, offset)`: UVs for the far corners of a wall grown from
+edge a→b, continuing the neighbour's texture at the same density, unmirrored. `projectUVs(points)`:
+the world-space fallback.
 
 ### `document.ts`
 - `SceneObject`:
@@ -141,7 +153,8 @@ primitive is Z-up, sits on z = 0, faces outward and has world-unit UVs.
 ## `history/history.ts`
 - `Command { label; apply(); revert() }`.
 - `History<S>`:
-  - `execute`, `undo`, `redo`, `clear`;
+  - `execute(cmd, select?)`, `undo`, `redo`, `clear`. The optional `select` callback runs right after
+    the command applies, to set the selection it produces; redo restores that selection;
   - `markSaved`, `isDirty`, `undoLabel`, `redoLabel`.
   - It records the selection snapshot (type `S`) before and after each command, and restores it on undo/redo.
 - Helpers: `FnCommand(label, do, undo)` and `CompositeCommand(label, cmds)`, which reverts in reverse order.
@@ -152,24 +165,27 @@ primitive is Z-up, sits on z = 0, faces outward and has world-unit UVs.
 
 | File | Contents |
 |---|---|
-| `editor.ts` | `Editor` singleton `editor`: `doc`, `docVersion` / `historyVersion` / `fileName` signals, `history`, `ctx` (a `CommandContext`), `execute`, `undo`, `redo`, `notifyPreview`, `replaceDocument`, `isDirty`. After every change it prunes stale selections and, in dev builds, validates every mesh |
-| `state.ts` | UI signals: `selectionMode`, `activeTool`, `snapEnabled`, `snapInvertHeld`, `gridStep`, `rotationStep`, `projection`, `transformSpace`, `xray`, `cursorWorld`, `statusMessage` (+ `showStatus`) |
+| `editor.ts` | `Editor` singleton `editor`: `doc`, `docVersion` / `historyVersion` / `fileName` signals, `history`, `ctx` (a `CommandContext`), `execute(cmd, select?)`, `undo`, `redo`, `notifyPreview`, `replaceDocument`, `isDirty`. After every change it prunes stale selections and, in dev builds, validates every mesh |
+| `state.ts` | UI signals: `selectionMode`, `activeTool`, `snapEnabled`, `snapInvertHeld`, `gridStep`, `rotationStep`, `projection`, `transformSpace`, `xray`, `cursorWorld`, `statusMessage` (+ `showStatus`), `textureLock`, `insetMode`, `measurement` (value of the drag in progress, shown in the status bar) |
 | `selection.ts` | Object selection (`selectedObjects`, `activeObject`, `setSelection`, `selectOnly`, `addToSelection`, `toggleSelection`, `clearSelection`). Component selection: per mode, per object `componentSelection[mode]`, `editObjects`, `applyComponents(mode, refs, op)`, `setComponents`, `clearComponents`, `componentCount`. Undo snapshots: `snapshotSelection` / `restoreSelection`. Plus `pruneSelection` |
 | `components.ts` | Resolving element keys against a mesh (`vertexOf`, `edgeOf`, `faceOf`, `keyOfEdge`, `elementExists`, `verticesOf`, `edgesOf`, `facesOf`, `allKeys`) and `convertSelection` between modes |
 | `modes.ts` | `setSelectionMode(mode)`: fixes the edit set when entering a component mode, converts the selection between component modes. `isComponentMode` |
 | `commands.ts` | `CommandContext`, `AddObjectsCommand`, `RemoveObjectsCommand`, `SetTransformsCommand`, `SetObjectPropsCommand`, `ReplaceMeshCommand` (full before/after snapshots; `capture(obj)`), `MoveVertsCommand` (positions only; clears `source`), `AddMaterialCommand`, `SetMaterialPropsCommand`, `assignObjectMaterialCommand`, `removeMaterialCommand` |
 | `actions.ts` | Object-mode operations: `createPrimitive`, `deleteSelection`, `duplicateSelection`, `setTransforms`, `setObjectTransform`, `renameObject`, `setObjectsVisible`, `setObjectsLocked`, `setPrimitiveSource`, `selectAll`, `selectNone`, `invertSelection`. Materials: `addMaterial`, `previewMaterialColor` / `commitMaterialColor`, `renameMaterial`, `deleteMaterial`, `assignMaterial`, `objectMaterial` |
-| `componentActions.ts` | Component operations: `deleteComponents`, `dissolveComponents`, `mergeComponentsAtCenter`, `mergeComponentsByDistance`, `selectAllComponents`, `invertComponents`, `componentCentroid`, `moveComponentsTo`, **`commitVertexMoves`** (the single path for vertex moves: folds bent faces, then picks `MoveVerts` or `ReplaceMesh`), `setEdgesHard` / `selectedEdgesHard`, `assignMaterialToFaces` / `selectedFacesMaterial`. Topology edits run on a clone via `editMeshes`, and failures show in the status bar |
+| `componentActions.ts` | Component operations: `deleteComponents`, `dissolveComponents`, `mergeComponentsAtCenter`, `mergeComponentsByDistance`, `selectAllComponents`, `invertComponents`, `componentCentroid`, `moveComponentsTo`, **`commitVertexMoves`** (the single path for vertex moves: folds bent faces, then picks `MoveVerts` or `ReplaceMesh`), `setEdgesHard` / `selectedEdgesHard`, `assignMaterialToFaces` / `selectedFacesMaterial`. **`editMeshes(label, entries, edit, selectMode?)`** runs topology edits on a clone of each mesh; `edit` returns the mesh or an `EditOutcome {mesh?, select?}`, and `select` becomes the selection in `selectMode` (redo restores it). Edits that change nothing are not recorded; failures show in the status bar. `selectedEntries(mode)` |
+| `modelActions.ts` | M4 operations on the selection: `pushPullSelection`, `extrudeSelection`, `insetSelection`, `connectSelection` (vertex: split faces; edge: halve edges and connect midpoints), `subdivideSelection`, `makeFaceFromSelection`, `makeHoleSelection`, `flipSelection`, `recalcNormalsSelection`, `triangulateSelection` (the last three act on whole objects in object mode). `extrudeMesh(mesh, mode, keys, offset)` is shared with the Extrude tool |
 | `tools.ts` | `TOOLS` definitions (id, label, key, hint), `toolById` |
 | `keymap.ts` | `installKeymap()`. Shortcut tables; actions are mode-aware via `byMode`. Tracks Ctrl for snap inversion, and warns on unload when there are unsaved changes |
-| `viewActions.ts` | Bridge to the live viewport: `attachViewport`, `setStandardView`, `toggleProjection`, `frameSelection`, `spawnPoint` |
+| `viewActions.ts` | Bridge to the live viewport: `attachViewport`, `currentViewport`, `setStandardView`, `toggleProjection`, `frameSelection`, `spawnPoint` |
 | `snap.ts` | `snapScalar`, `snapVec3`, `isSnapActive(enabled, invertHeld)` |
 | `transformPoints.ts` | `transformPoint(t, p)` / `inverseTransformPoint` without Three.js |
 
 ### Adding an undoable operation
 1. Write the mesh logic as a pure function in `core/ops/` that takes a `HalfEdgeMesh`, with tests.
-2. Add an action in `editor/componentActions.ts`. Use `editMeshes(label, entries, fn)` for topology
-   changes, or `commitVertexMoves` for position-only changes (it folds bent faces for you).
+2. Add an action in `editor/modelActions.ts` (or `componentActions.ts`). Use
+   `editMeshes(label, entries, fn, selectMode)` for topology changes, returning `{mesh, select}` so the
+   result's selection survives redo; or `commitVertexMoves` for position-only changes (it folds bent
+   faces for you).
 3. Bind it in `keymap.ts` and/or add a button in `ui/`.
 
 ---
@@ -178,19 +194,22 @@ primitive is Z-up, sits on z = 0, faces outward and has world-unit UVs.
 
 | File | Contents |
 |---|---|
-| `Viewport.ts` | Owns the renderer, both cameras (perspective/ortho), OrbitControls, `SceneSync`, `ComponentOverlay`, `Gizmo` and the grid. One effect re-syncs on any document, selection or mode change. Pointer handling: click → pick, drag past 4 px → box select (window or crossing), hover highlight in component modes. Also `setStandardView`, `frameObjects`, `framePoints`, `spawnPoint` |
+| `Viewport.ts` | Owns the renderer, both cameras (perspective/ortho), OrbitControls, `SceneSync`, `ComponentOverlay`, `Gizmo` and the grid. One effect re-syncs on any document, selection or mode change. Pointer handling: click → pick, drag past 4 px → box select (window or crossing), hover highlight in component modes; with the Push/Pull or Inset tool, a press on a face starts a `FaceDrag` (Esc cancels). Also `setStandardView`, `frameObjects`, `framePoints`, `spawnPoint`, `worldToScreen` |
+| `FaceDrag.ts` | `PushPullDrag`, `InsetDrag`, `localFaceHit`. Each pointer move re-runs the op on a fresh copy of the original mesh as a preview (`obj.setMesh`); release restores the original and commits one `ReplaceMeshCommand`. Push/Pull distance = closest approach of the pointer ray to the normal line through the press point; inset amount = pointer travel across the face plane. Both in local space, snapped to the grid step |
 | `SceneSync.ts` | Mirrors the document into Three.js: one group per object (mesh + hard-edge lines + soft-edge lines). Rebuilds geometry only when `meshRev` changes. Keeps a material per document material; X-ray makes faces translucent. `pickables`, `meshOf`, `bounds` |
 | `meshBuffers.ts` | `buildMeshBuffers(mesh)` (pure, tested): non-indexed positions, normals (flat, smoothed across soft edges via `cornerNormal`), UVs, per-material groups, `triFaces` (triangle → face id), hard and soft edge segments |
 | `Picker.ts` | `pickComponent(env, mode, x, y)`, `boxComponents(env, mode, rect, crossing)`, `boxObjects`. Screen-space distance for vertices and edges, raycasting for faces. Occlusion uses jittered rays with a tolerance of a few pixels' world size |
 | `ComponentOverlay.ts` | Vertex dots, thick selected/hover edges (`LineSegments2`), translucent face fills. Rebuilt on change |
-| `Gizmo.ts` | `TransformControls` on a hidden pivot. Targets are objects or components (`GizmoTargets`). It previews live, and commits `SetTransforms` or `commitVertexMoves` on release |
+| `Gizmo.ts` | `TransformControls` on a hidden pivot. Targets are objects or components (`GizmoTargets`). It previews live, and commits `SetTransforms` or `commitVertexMoves` on release. With the Extrude tool the translate gizmo extrudes: each frame re-runs `extrudeMesh` with the local offset and selects the copies; release commits one `ReplaceMeshCommand` per object |
 | `transformMath.ts` | `applyTransform`, `transformToMatrix`, `matrixToTransform` (rounds away float noise) |
 | `grid.ts`, `AxesIndicator.ts`, `colors.ts` | Ground grid (drawn first without depth writes), corner axes gizmo, palette |
 
 ## `ui/` — panels (Preact)
 `App` lays out `Toolbar`, `Outliner` and `Properties` (sidebar), `ViewportView` and `StatusBar`.
 `fields.tsx` has `TextField`, `NumberField` and `Vec3Field` (commit on Enter or blur, revert on Escape),
-plus colour hex helpers. `icons.tsx` has small SVG icons.
+plus colour hex helpers. `icons.tsx` has small SVG icons. `Properties.tsx` shows a **Model** section per
+component mode (numeric Push/Pull, Extrude, Inset, Subdivide; Connect, Make Face/Hole, Triangulate,
+Flip, Recalc Normals) and per-tool options (texture lock, inset mode).
 
 **Important: `useDoc()`.** The document is mutated in place, and `@preact/signals` skips re-rendering
 children whose props haven't changed. Every component that displays document data must call

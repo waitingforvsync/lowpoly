@@ -35,9 +35,14 @@ export class History<S> {
     private readonly limit = 500,
   ) {}
 
-  execute(cmd: Command): void {
+  /**
+   * Apply a command and record it. `select`, if given, runs right after the command applies, to
+   * set the selection it produces (e.g. the new faces of an extrusion); redo restores that.
+   */
+  execute(cmd: Command, select?: () => void): void {
     const selBefore = this.hooks.getSelection();
     cmd.apply();
+    select?.();
     const selAfter = this.hooks.getSelection();
     this.undoStack.push({ cmd, selBefore, selAfter });
     if (this.savedDepth > this.undoStack.length - 1) this.savedDepth = -1; // saved state was in the redo branch

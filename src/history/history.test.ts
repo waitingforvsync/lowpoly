@@ -62,6 +62,16 @@ describe('History', () => {
     expect(state.sel).toBe('b');
   });
 
+  it('records a selection set by the execute callback, and redo restores it', () => {
+    const { state, history, add } = setup();
+    history.execute(add(1), () => (state.sel = 'new'));
+    expect(state.sel).toBe('new');
+    history.undo();
+    expect(state.sel).toBe('a');
+    history.redo();
+    expect(state.sel).toBe('new');
+  });
+
   it('tracks the dirty state against the last save', () => {
     const { history, add } = setup();
     expect(history.isDirty).toBe(false);

@@ -35,3 +35,15 @@ export function showStatus(text: string, kind: 'info' | 'error' = 'info'): void 
 
 /** Snapped world-space position of the pointer on the ground plane, or null when off-canvas. */
 export const cursorWorld = signal<Vec3Tuple | null>(null);
+
+/**
+ * Texture lock: walls created by extrude and push/pull continue the texture of the face across
+ * their base edge. Off: they get a fresh world-space planar projection.
+ */
+export const textureLock = signal(true);
+
+/** Inset as a ring of quads, or as a hole filled by the inset face (SketchUp's Offset). */
+export const insetMode = signal<'ring' | 'hole'>('ring');
+
+/** The value of the operation in progress (e.g. a push/pull distance), shown in the status bar. */
+export const measurement = signal<string | null>(null);

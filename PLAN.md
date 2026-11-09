@@ -218,15 +218,20 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
 - Snap selection to grid
 
 **Model** (component modes)
-- **Push/Pull:** extrude a face along its normal. Hole walls are created too.
-- Extrude vertices, edges or faces along a free direction.
-- **Inset** faces. Holes are inset as well.
-- **Split edge**, **Connect vertices** (split a face).
+- **Push/Pull:** extrude a face along its normal. Hole walls are created too. SketchUp behaviour:
+  a face whose surrounding faces are all perpendicular just moves (the box stretches); walls that
+  line up with the face beside them merge into it; pushing a face flat against an opposite face
+  cuts a tunnel; a free-standing face becomes a closed solid.
+- Extrude vertices, edges or faces along a free direction (the Extrude tool drives the move gizmo).
+- **Inset** faces, as a ring of quads (holes are inset as well) or as a hole (SketchUp's Offset).
+- **Split edge** (subdivide into n pieces), **Connect** (vertices: split a face; edges: cut in half
+  and connect the midpoints).
 - **Loop cut** (quad strips).
 - **Merge** vertices (at centre / at last selected / by distance).
 - **Delete** vs **Dissolve** (vertex, edge or face).
 - **Make face** from a closed vertex or edge loop. Make hole: cut a selected inner face out of its surrounding face.
-- **Flip normals**, **Recalculate normals** (consistent outward orientation).
+- **Flip normals**, **Recalculate normals** (consistent outward orientation). Both act on whole
+  shells, since neighbouring faces always wind consistently.
 - **Triangulate**.
 - **Bevel** edges (later).
 
@@ -274,7 +279,7 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
 4. **M3 Component editing:** vertex/edge/face modes, picking, overlays, box select, component
    transforms, delete/dissolve/merge.
 5. **M4 Modelling ops:** push/pull, extrude, inset, split/connect, make face/hole, flip/recalc
-   normals, triangulate. Texture lock.
+   normals, triangulate. Texture lock (walls continue the neighbouring face's texture).
 6. **M5 Materials and texturing:** texture import, paint tool, UV projection commands, textured rendering.
 7. **M6 SketchUp-style feel:** inference snapping, axis lock, measurement box, line and rectangle tools, loop cut.
 8. **M7 I/O and polish:** OBJ import/export, GLB export, autosave, UV editor panel, deploy.
@@ -295,7 +300,8 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
 | `R` | Rectangle tool |
 | `B` | Paint bucket (Alt+click samples a material) |
 | `K` | Loop cut |
-| `J` | Connect vertices |
+| `J` | Connect (vertices: split faces between them; edges: connect their midpoints) |
+| `Ctrl+F` | Make face from the selected vertices or edge loop |
 | `Ctrl+M` | Merge selected vertices at their centre |
 | `Ctrl+Shift+M` | Weld coincident vertices in the selection (merge by distance) |
 | `Delete` | Delete selection |

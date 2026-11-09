@@ -6,6 +6,7 @@ import {
   projection,
   selectionMode,
   snapEnabled,
+  textureLock,
   transformSpace,
   xray,
   type SelectionMode,
@@ -141,6 +142,13 @@ export function Toolbar() {
           onClick={() => (xray.value = !xray.value)}
         >
           X-ray
+        </Button>
+        <Button
+          title="Texture lock: walls made by extrude and push/pull continue the texture of the face beside them"
+          active={textureLock.value}
+          onClick={() => (textureLock.value = !textureLock.value)}
+        >
+          Tex Lock
         </Button>
       </Group>
 

@@ -4,10 +4,16 @@ import { cloneTransform, type ObjectId, type Transform } from '../core/document'
 import type { Vec3 } from '../core/math/vec';
 import type { VertId } from '../core/meshdata';
 import { setTransforms } from '../editor/actions';
-import { commitVertexMoves } from '../editor/componentActions';
+import { commitVertexMoves, type EditOutcome } from '../editor/componentActions';
+import { ReplaceMeshCommand, type MeshState } from '../editor/commands';
+import { extrudeMesh } from '../editor/modelActions';
+import { measurement, showStatus } from '../editor/state';
+import { fromMeshData, toMeshData } from '../core/halfedge/convert';
+import type { HalfEdgeMesh } from '../core/halfedge/mesh';
+import { type Command, CompositeCommand } from '../history/history';
 import { verticesOf } from '../editor/components';
 import { editor } from '../editor/editor';
-import type { ComponentMode, ComponentSet } from '../editor/selection';
+import { type ComponentMode, type ComponentSet, type ElementKey, setComponents } from '../editor/selection';
 import type { ToolId } from '../editor/tools';
 import { applyTransform, matrixToTransform, transformToMatrix } from './transformMath';
 
@@ -28,6 +34,7 @@ export type GizmoTargets =
 
 const TOOL_MODES: Partial<Record<ToolId, 'translate' | 'rotate' | 'scale'>> = {
   move: 'translate',
+  extrude: 'translate',
   rotate: 'rotate',
   scale: 'scale',
 };
@@ -53,7 +60,24 @@ interface VertexDrag {
   }[];
 }
 
-type DragState = (ObjectDrag | VertexDrag) & { pivotInverse: THREE.Matrix4 };
+/** Extrude tool: the selection is extruded and the copies follow the gizmo. */
+interface ExtrudeDrag {
+  kind: 'extrude';
+  mode: ComponentMode;
+  /** The selection before the drag; the preview selects the copies instead. */
+  selection: ComponentSet;
+  objects: {
+    id: ObjectId;
+    world: THREE.Matrix4;
+    inverse: THREE.Matrix4;
+    keys: ReadonlySet<ElementKey>;
+    original: HalfEdgeMesh;
+    before: MeshState;
+    result: Required<EditOutcome> | null;
+  }[];
+}
+
+type DragState = (ObjectDrag | VertexDrag | ExtrudeDrag) & { pivotInverse: THREE.Matrix4 };
 
 /**
  * Move/rotate/scale gizmo. Three's TransformControls drives a hidden pivot. Each drag frame,
@@ -65,6 +89,7 @@ export class Gizmo {
   private readonly pivot = new THREE.Object3D();
   private drag: DragState | null = null;
   private targets: GizmoTargets = { kind: 'objects', ids: new Set() };
+  private tool: ToolId = 'select';
 
   constructor(camera: THREE.Camera, dom: HTMLElement, scene: THREE.Scene, onDraggingChanged: (d: boolean) => void) {
     this.pivot.name = 'gizmo-pivot';
@@ -94,9 +119,12 @@ export class Gizmo {
     this.controls.scaleSnap = settings.snap ? 0.1 : null;
     if (this.drag) return;
     this.targets = targets;
+    this.tool = settings.tool;
 
     const mode = TOOL_MODES[settings.tool];
-    const frame = mode ? this.pivotFrame(targets, settings.space) : null;
+    // Extrude works on components only.
+    const usable = mode && !(settings.tool === 'extrude' && targets.kind === 'objects');
+    const frame = usable ? this.pivotFrame(targets, settings.space) : null;
     if (!mode || !frame) {
       this.controls.detach();
       return;
@@ -183,6 +211,32 @@ export class Gizmo {
       return;
     }
 
+    if (this.tool === 'extrude') {
+      this.drag = {
+        kind: 'extrude',
+        mode: t.mode,
+        selection: t.selection,
+        pivotInverse,
+        objects: [...t.selection]
+          .filter(([id, keys]) => keys.size > 0 && doc.findObject(id))
+          .map(([id, keys]) => {
+            const obj = doc.object(id);
+            const world = transformToMatrix(obj.transform);
+            return {
+              id,
+              world,
+              inverse: world.clone().invert(),
+              keys,
+              original: obj.mesh,
+              before: ReplaceMeshCommand.capture(obj),
+              result: null,
+            };
+          }),
+      };
+      measurement.value = '0.000';
+      return;
+    }
+
     this.drag = {
       kind: 'components',
       mode: t.mode,
@@ -214,6 +268,28 @@ export class Gizmo {
 
     if (drag.kind === 'objects') {
       for (const o of drag.objects) doc.object(o.id).transform = matrixToTransform(delta.clone().multiply(o.matrix));
+    } else if (drag.kind === 'extrude') {
+      measurement.value = new THREE.Vector3().setFromMatrixPosition(delta).length().toFixed(3);
+      for (const o of drag.objects) {
+        // A translation in world space is a translation in local space too.
+        const offset = new THREE.Vector3().setFromMatrixPosition(o.inverse.clone().multiply(delta).multiply(o.world));
+        const obj = doc.object(o.id);
+        if (offset.length() < 1e-9) {
+          o.result = null;
+          obj.setMesh(o.original);
+          continue;
+        }
+        try {
+          o.result = extrudeMesh(fromMeshData(o.before.mesh), drag.mode, o.keys, [round(offset.x), round(offset.y), round(offset.z)]);
+          obj.setMesh(o.result.mesh);
+        } catch (e) {
+          showStatus(`Extrude: ${(e as Error).message}`, 'error');
+        }
+      }
+      // Highlight the moving copies rather than the originals left behind.
+      const preview = new Map<ObjectId, ReadonlySet<ElementKey>>();
+      for (const o of drag.objects) preview.set(o.id, o.result ? new Set(o.result.select) : o.keys);
+      setComponents(drag.mode, preview);
     } else {
       for (const o of drag.objects) {
         const m = o.inverse.clone().multiply(delta).multiply(o.world);
@@ -244,6 +320,25 @@ export class Gizmo {
       // Put the pre-drag values back, so the command applies the change itself.
       for (const c of changes) doc.object(c.id).transform = cloneTransform(c.before);
       setTransforms(changes, `${verb} ${changes.length === 1 ? 'Object' : 'Objects'}`);
+    } else if (drag.kind === 'extrude') {
+      measurement.value = null;
+      // Back to the pre-drag selection, so undo returns to it.
+      setComponents(drag.mode, drag.selection);
+      const cmds: Command[] = [];
+      const selection = new Map<ObjectId, Set<ElementKey>>();
+      for (const o of drag.objects) {
+        doc.object(o.id).setMesh(o.original);
+        if (!o.result) continue;
+        const label = `Extrude ${NOUNS[drag.mode]}`;
+        cmds.push(new ReplaceMeshCommand(editor.ctx, o.id, o.before, { mesh: toMeshData(o.result.mesh), source: null }, label));
+        selection.set(o.id, new Set(o.result.select));
+      }
+      const mode = drag.mode;
+      if (cmds.length) {
+        editor.execute(cmds.length === 1 ? cmds[0]! : new CompositeCommand(`Extrude ${NOUNS[mode]}`, cmds), () =>
+          setComponents(mode, selection),
+        );
+      }
     } else {
       const moves = drag.objects.map((o) => {
         const obj = doc.object(o.id);

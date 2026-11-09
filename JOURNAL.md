@@ -165,3 +165,65 @@ way (with what they taught). Newest entries at the bottom of each milestone. See
   Those tests now assert that the operation is refused or folded.
 - A fold test raised a cube corner straight up and expected three folds, but straight up keeps the
   vertex in both side planes, so only the top bends. Fixed the test, and kept the case as an assertion.
+
+---
+
+## M4 — Modelling operations
+
+### Decisions
+- **Ops that add geometry build `MeshData` and rebuild.** Extrude, inset, flip and the like edit the
+  serialized form and go back through `fromMeshData`, which validates everything (manifold
+  edges, planarity) and makes the op atomic: it either returns a valid new mesh or throws. Ops that
+  only split things (connect, subdivide, make face/hole, triangulate) use the Euler operators in place.
+- **Preview by re-running.** Interactive tools (Push/Pull, Inset, the Extrude gizmo) re-run the
+  whole operation on a fresh copy of the original mesh at every pointer move, rather than building
+  geometry once and moving it. At low-poly sizes it's instant, and the preview is always exactly
+  what gets committed, with correct UVs, folds and validation. On release the original mesh
+  object is put back and one `ReplaceMeshCommand` records the result.
+- **Push/Pull is SketchUp's, not Blender's extrude.** Faces are grouped into coplanar,
+  edge-connected groups, each moving along its own normal:
+  - *stretch*: if every face around a group is perpendicular to it, its vertices just move (a box
+    gets taller or shorter with no new faces; this is also the only sensible result when pushing a
+    box top down, where walls would overlap the sides);
+  - otherwise extrude, then merge walls into same-facing coplanar neighbours and dissolve the
+    straight-through vertices left behind;
+  - *push through*: a face pushed flat against an opposite-facing face cuts a hole in it (a tunnel);
+  - a free-standing sheet becomes a closed solid (reversed base left behind, flipped if pulled backwards).
+- **Extrude reuses the move gizmo.** With the Extrude tool, grabbing the translate gizmo extrudes the
+  selection (faces as regions, open/loose edges into quads, vertices into loose edges) and the copies
+  follow the gizmo, with its axis constraints and grid snap. The preview selects the copies.
+- **Inset has two modes:** a ring of quads (Blender) or a hole (SketchUp's Offset: the old face
+  becomes a frame whose hole the inset face fills). Hole mode plus Push/Pull through gives windows
+  and tunnels.
+- **Orientation is per shell.** The half-edge structure can't represent neighbours with opposite
+  winding, so "flip this face" is impossible on its own; Flip and Recalculate act on whole
+  edge-connected shells. Recalculate uses the signed volume about the shell's centre, which also
+  gives a sensible answer for open shells.
+- **Texture lock** (default on): a wall keeps the neighbouring face's UVs along its base edge and
+  extends them across the wall at the same texel density, turned 90° so it isn't mirrored. Inset
+  corners and cut holes evaluate the face's own fitted affine UV map. Off: walls get a world-space
+  planar projection.
+- **Commands can set the selection they produce.** `History.execute(cmd, select)` runs `select`
+  after applying and records the selection then, so redo restores, for example, the faces an
+  extrusion selected. This also fixed the M3 gap where redoing Merge lost its selection.
+- `editMeshes` skips edits that change nothing (compared as serialized data), so e.g. Recalculate on
+  an already-outward mesh doesn't leave an empty undo step.
+- The status bar's measurement box now shows the value of a drag in progress; typing a value is M6.
+
+### Mistakes
+- **Inset size check by area sign.** Too large an inset of a square turns it 180° about its
+  centre, which keeps the area's sign, so "is the area still positive?" passed. Each inset edge is
+  now required to point the same way as the edge it came from.
+- **Soft edges referring to vanished edges.** Extrude remapped interior soft edges but also kept
+  the originals, some of which no longer existed, and `fromMeshData` rejected them. `rebuild` now
+  drops soft-edge entries for edges that aren't there, which keeps every op simple.
+- **Test arithmetic.** Two of my first expected values were wrong: edges for an extruded chain
+  (counted the shared vertical twice), and expecting Connect on all four corners of a quad to add a
+  diagonal (consecutive corners are all adjacent, so there's nothing to connect, as in Blender).
+- **Test-script misses, again.** The browser check's gizmo drag twice did nothing: once because the
+  pivot was off-screen (the camera was still framed on another object), once because the drag
+  snapped to zero (the view was framed so tightly that 60 px was under half a grid step). Logging
+  the pivot's projected position (`worldToScreen`, added for this) found both at once.
+  *Lesson (repeated from M3): print the screen geometry before assuming the app is broken.*
+- The first heredoc-based patch script failed on quoting; script files written with the file tool
+  are more reliable for multi-line patches (same lesson as M0's `launch.json`).

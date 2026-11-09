@@ -46,8 +46,9 @@ export class Editor {
     });
   }
 
-  execute(cmd: Command | null): void {
-    if (cmd) this.history.execute(cmd);
+  /** Run a command as one undo step. `select` sets the selection it produces (see History). */
+  execute(cmd: Command | null, select?: () => void): void {
+    if (cmd) this.history.execute(cmd, select);
   }
 
   undo(): void {

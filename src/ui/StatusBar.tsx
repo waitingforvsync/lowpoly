@@ -1,4 +1,4 @@
-import { activeTool, cursorWorld, statusMessage } from '../editor/state';
+import { activeTool, cursorWorld, measurement, statusMessage } from '../editor/state';
 import { toolById } from '../editor/tools';
 
 function fmt(n: number): string {
@@ -17,9 +17,9 @@ export function StatusBar() {
       <span class="status-coords" title="Cursor position on the ground plane">
         {cursor ? `X ${fmt(cursor[0])}  Y ${fmt(cursor[1])}  Z ${fmt(cursor[2])}` : ''}
       </span>
-      <label class="measure" title="Measurement box: type a value during an operation (M6)">
+      <label class="measure" title="The value of the operation in progress. Typing a value comes in M6.">
         <span>Measure</span>
-        <input type="text" disabled placeholder="—" />
+        <input type="text" readOnly value={measurement.value ?? ''} placeholder="—" />
       </label>
     </footer>
   );
