@@ -7,4 +7,6 @@ export const COLORS = {
   axisY: 0x4cae50,
   axisZ: 0x3f7ee8,
   cursor: 0xffffff,
+  edge: 0x16181b,
+  selection: 0x4a9dff,
 } as const;

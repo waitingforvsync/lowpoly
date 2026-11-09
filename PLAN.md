@@ -289,7 +289,7 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
 | `J` | Connect vertices |
 | `Ctrl+M` | Merge vertices |
 | `Delete` | Delete selection |
-| `Backspace` | Dissolve selection |
+| `Backspace` | Dissolve selection (component modes); delete (object mode) |
 | `Ctrl+Z` / `Ctrl+Y` (or `Ctrl+Shift+Z`) | Undo / Redo |
 | `Ctrl+D` | Duplicate |
 | `Ctrl+A` / `Ctrl+Shift+A` / `Ctrl+I` | Select all / none / invert |
@@ -305,4 +305,4 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
 | `G` | Toggle grid snap (hold `Ctrl` to invert temporarily) |
 | Arrow keys (during a tool) | Lock to X (→) / Y (←) / Z (↑) axis; ↓ locks to the inference direction |
 | Middle mouse / Shift+Middle / Wheel | Orbit / Pan / Zoom |
-| `Ctrl+S` / `Ctrl+O` / `Ctrl+N` | Save / Open / New |
+| `Ctrl+S` / `Ctrl+Shift+S` / `Ctrl+O` | Save / Save As / Open. New is on the toolbar (browsers reserve `Ctrl+N`). |

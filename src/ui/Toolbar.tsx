@@ -6,10 +6,15 @@ import {
   projection,
   selectionMode,
   snapEnabled,
+  transformSpace,
   type SelectionMode,
 } from '../editor/state';
 import { TOOLS } from '../editor/tools';
-import { setStandardView, toggleProjection } from '../editor/viewActions';
+import { setStandardView, spawnPoint, toggleProjection } from '../editor/viewActions';
+import { createPrimitive } from '../editor/actions';
+import { editor } from '../editor/editor';
+import { PRIMITIVE_TYPES, PRIMITIVES, type PrimitiveType } from '../core/primitives';
+import { newDocument, openDocument, saveDocument } from '../io/file';
 import type { StandardView } from '../render/Viewport';
 
 const MODES: { id: SelectionMode; label: string; key: string }[] = [
@@ -27,11 +32,53 @@ const VIEWS: { id: StandardView; label: string; key: string }[] = [
 ];
 
 export function Toolbar() {
+  void editor.historyVersion.value; // re-render when undo/redo availability changes
+  const undoLabel = editor.history.undoLabel;
+  const redoLabel = editor.history.redoLabel;
+
   return (
     <header class="toolbar">
+      <Group label="File">
+        <Button title="New document" onClick={newDocument}>
+          New
+        </Button>
+        <Button title="Open… (Ctrl+O)" onClick={() => void openDocument()}>
+          Open
+        </Button>
+        <Button title="Save (Ctrl+S). Save As: Ctrl+Shift+S" onClick={() => void saveDocument()}>
+          Save
+        </Button>
+      </Group>
+
       <Group label="History">
-        <Button title="Undo (Ctrl+Z)" disabled>Undo</Button>
-        <Button title="Redo (Ctrl+Y)" disabled>Redo</Button>
+        <Button title={undoLabel ? `Undo ${undoLabel} (Ctrl+Z)` : 'Nothing to undo'} disabled={!undoLabel} onClick={() => editor.undo()}>
+          Undo
+        </Button>
+        <Button title={redoLabel ? `Redo ${redoLabel} (Ctrl+Y)` : 'Nothing to redo'} disabled={!redoLabel} onClick={() => editor.redo()}>
+          Redo
+        </Button>
+      </Group>
+
+      <Group label="Create">
+        <select
+          class="tb-select"
+          title="Create a primitive"
+          value=""
+          onChange={(e) => {
+            const type = e.currentTarget.value as PrimitiveType;
+            e.currentTarget.value = '';
+            if (type) createPrimitive(type, spawnPoint());
+          }}
+        >
+          <option value="" disabled hidden>
+            Add…
+          </option>
+          {PRIMITIVE_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {PRIMITIVES[t].label}
+            </option>
+          ))}
+        </select>
       </Group>
 
       <Group label="Selection mode">
@@ -80,6 +127,12 @@ export function Toolbar() {
             </option>
           ))}
         </select>
+        <Button
+          title="Gizmo orientation for a single object: world axes or the object's own axes"
+          onClick={() => (transformSpace.value = transformSpace.value === 'world' ? 'local' : 'world')}
+        >
+          {transformSpace.value === 'world' ? 'World' : 'Local'}
+        </Button>
       </Group>
 
       <div class="toolbar-spacer" />

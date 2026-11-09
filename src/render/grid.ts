@@ -27,8 +27,9 @@ export function createGrid(extent = 50, majorEvery = 10): THREE.Group {
   ];
   for (const [dir, color] of axes) {
     const end = dir.clone().multiplyScalar(extent);
-    group.add(makeAxisLine(end, color, false));
-    group.add(makeAxisLine(end.clone().negate(), color, true));
+    const onGround = dir.z === 0;
+    group.add(makeAxisLine(end, color, false, onGround));
+    group.add(makeAxisLine(end.clone().negate(), color, true, onGround));
   }
 
   return group;
@@ -37,16 +38,23 @@ export function createGrid(extent = 50, majorEvery = 10): THREE.Group {
 function makeLines(positions: number[], color: number): THREE.LineSegments {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  return new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color }));
+  const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color, depthWrite: false }));
+  lines.renderOrder = -1;
+  return lines;
 }
 
-function makeAxisLine(end: THREE.Vector3, color: number, dashed: boolean): THREE.Line {
+/**
+ * Lines on the ground plane are drawn first without writing depth, so geometry sitting on z = 0
+ * covers them instead of z-fighting. The vertical axis depth-tests normally.
+ */
+function makeAxisLine(end: THREE.Vector3, color: number, dashed: boolean, onGround: boolean): THREE.Line {
   const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), end]);
+  const depthWrite = !onGround;
   const material = dashed
-    ? new THREE.LineDashedMaterial({ color, dashSize: 0.25, gapSize: 0.25 })
-    : new THREE.LineBasicMaterial({ color });
+    ? new THREE.LineDashedMaterial({ color, dashSize: 0.25, gapSize: 0.25, depthWrite })
+    : new THREE.LineBasicMaterial({ color, depthWrite });
   const line = new THREE.Line(geometry, material);
   if (dashed) line.computeLineDistances();
-  line.renderOrder = 1;
+  line.renderOrder = onGround ? -1 : 0;
   return line;
 }

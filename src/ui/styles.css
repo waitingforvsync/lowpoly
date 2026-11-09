@@ -216,3 +216,158 @@ body,
 .measure input {
   width: 110px;
 }
+
+/* Fields */
+
+.field {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+
+.field:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.vec3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+}
+
+.vec3-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: 3px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.vec3-cell span {
+  padding: 0 3px 0 5px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.vec3-cell .field {
+  border: none;
+  background: transparent;
+  padding: 2px 3px;
+}
+
+.axis-x span {
+  color: #e0626a;
+}
+.axis-y span {
+  color: #6cc070;
+}
+.axis-z span {
+  color: #5f95ee;
+}
+
+.dim {
+  color: var(--text-dim);
+}
+
+/* Outliner tree */
+
+.subhead-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tree {
+  list-style: none;
+  margin: 0 -10px;
+  padding: 0;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  cursor: default;
+  user-select: none;
+}
+
+.tree-row:hover {
+  background: var(--panel-raised);
+}
+
+.tree-row.selected {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.tree-row.hidden .tree-name,
+.tree-row.locked .tree-name {
+  color: var(--text-dim);
+}
+
+.tree-name {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tree-edit {
+  flex: 1;
+}
+
+.icon-button {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  color: var(--text);
+  background: var(--border);
+}
+
+.swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+}
+
+.swatch::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.swatch::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+.icon-button svg {
+  display: block;
+}
+
+/* Give the properties panel more of the sidebar than the outliner. */
+.sidebar .panel:first-child {
+  flex: 2;
+}
+
+.sidebar .panel:last-child {
+  flex: 3;
+}
