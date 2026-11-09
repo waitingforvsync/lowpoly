@@ -1,0 +1,218 @@
+:root {
+  --bg: #1d1f22;
+  --panel: #25272b;
+  --panel-raised: #2e3136;
+  --border: #383b41;
+  --text: #d7d9dd;
+  --text-dim: #8b9099;
+  --accent: #4a8df0;
+  --accent-text: #ffffff;
+  --sidebar-width: 260px;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    'toolbar toolbar'
+    'sidebar viewport'
+    'status status';
+  height: 100%;
+}
+
+/* Toolbar */
+
+.toolbar {
+  grid-area: toolbar;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 6px 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.tb-group {
+  display: flex;
+  gap: 2px;
+}
+
+.tb-button,
+.tb-select {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+
+.tb-button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.tb-button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.tb-button:disabled {
+  color: var(--text-dim);
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* Sidebar */
+
+.sidebar {
+  grid-area: sidebar;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+
+.panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel + .panel {
+  border-top: 1px solid var(--border);
+}
+
+.panel-title {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: var(--panel-raised);
+}
+
+.panel-body {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 10px 10px;
+}
+
+.subhead {
+  margin: 10px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.empty {
+  margin: 0;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.props {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 10px;
+  align-items: center;
+  margin: 0;
+}
+
+.props dt {
+  color: var(--text-dim);
+}
+
+.props dd {
+  margin: 0;
+}
+
+.num,
+.measure input {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+
+/* Viewport */
+
+.viewport {
+  grid-area: viewport;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.viewport canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+/* Status bar */
+
+.statusbar {
+  grid-area: status;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 10px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.status-hint {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.status-coords {
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+  min-width: 22ch;
+}
+
+.measure {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.measure input {
+  width: 110px;
+}
