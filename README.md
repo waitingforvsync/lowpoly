@@ -1,6 +1,10 @@
 # Lowpoly
 
-A minimalist, browser-based low-poly mesh editor. See [PLAN.md](PLAN.md) for the design and roadmap.
+A minimalist, browser-based low-poly mesh editor.
+
+- [PLAN.md](PLAN.md): design and roadmap
+- [CODE.md](CODE.md): code structure, classes and APIs
+- [JOURNAL.md](JOURNAL.md): engineering decisions and mistakes along the way
 
 ```sh
 npm install

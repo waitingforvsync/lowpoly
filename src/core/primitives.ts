@@ -178,6 +178,7 @@ class Builder {
       verts: this.verts,
       faces: this.faces,
       wireEdges: [],
+      softEdges: [],
       nextVertId: this.verts.length,
       nextFaceId: this.faces.length,
     };

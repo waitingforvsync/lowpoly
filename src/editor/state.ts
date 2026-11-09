@@ -20,5 +20,18 @@ export const rotationStep = signal(15);
 export const projection = signal<Projection>('perspective');
 export const transformSpace = signal<'world' | 'local'>('world');
 
+/** See-through display: faces become translucent and occluded elements can be picked. */
+export const xray = signal(false);
+
+/** A transient message for the status bar, e.g. why an operation was refused. */
+export const statusMessage = signal<{ text: string; kind: 'info' | 'error' } | null>(null);
+let messageTimer: ReturnType<typeof setTimeout> | undefined;
+
+export function showStatus(text: string, kind: 'info' | 'error' = 'info'): void {
+  statusMessage.value = { text, kind };
+  clearTimeout(messageTimer);
+  messageTimer = setTimeout(() => (statusMessage.value = null), 4000);
+}
+
 /** Snapped world-space position of the pointer on the ground plane, or null when off-canvas. */
 export const cursorWorld = signal<Vec3Tuple | null>(null);

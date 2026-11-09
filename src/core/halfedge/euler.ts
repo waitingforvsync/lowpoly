@@ -10,6 +10,7 @@ import {
   type Vec2,
 } from '../math/vec';
 import type { FaceId, VertId } from '../meshdata';
+import { isPlanar } from '../planarity';
 import { type CornerInput, type Edge, type Face, type HalfEdgeMesh, type Loop, MeshError, type Vertex } from './mesh';
 
 /**
@@ -105,6 +106,7 @@ export function splitEdge(mesh: HalfEdgeMesh, edge: Edge, t = 0.5, id?: VertId):
     return { snap, loops };
   });
 
+  const hard = edge.hard;
   return rebuildFaces(mesh, faces, () => {
     mesh.removeEdge(edge);
     const v = mesh.addVertex(pos, id);
@@ -119,6 +121,9 @@ export function splitEdge(mesh: HalfEdgeMesh, edge: Edge, t = 0.5, id?: VertId):
         snap.id,
       );
     }
+    // Both halves keep the original edge's hardness.
+    mesh.findEdge(a, v)!.hard = hard;
+    mesh.findEdge(v, b)!.hard = hard;
     return v;
   });
 }
@@ -220,6 +225,9 @@ export function joinFaces(mesh: HalfEdgeMesh, edge: Edge): Face {
   if (new Set(merged.map((c) => c.v)).size !== merged.length) {
     throw new MeshError('Faces also touch at a vertex; merging would repeat it');
   }
+  if (!isPlanar([...f1.halfEdges(), ...f2.halfEdges()].map((x) => x.origin.pos))) {
+    throw new MeshError('Faces are not coplanar');
+  }
   const holes = [...f1.holes, ...f2.holes].map(loopCorners);
   const material = f1.material;
   const id = f1.id;
@@ -257,6 +265,9 @@ export function addHole(
   if (corners.some((c) => inFace.has(c.v))) throw new MeshError('Hole vertices must not already be in the face');
 
   let hole: Corner[] = corners.map((c) => ({ v: c.v, uv: c.uv ? [c.uv[0], c.uv[1]] : [0, 0] }));
+  if (!isPlanar([...snap.loops.flat(), ...hole].map((c) => c.v.pos))) {
+    throw new MeshError('Hole vertices must lie in the plane of the face');
+  }
   const faceN = newellNormal(snap.loops[0]!.map((c) => c.v.pos));
   const holeN = newellNormal(hole.map((c) => c.v.pos));
   if (dot(faceN, holeN) > 0) hole = hole.reverse();

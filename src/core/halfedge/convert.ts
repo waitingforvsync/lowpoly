@@ -30,6 +30,13 @@ export function fromMeshData(data: MeshData): HalfEdgeMesh {
     }
   }
 
+  // Older data may lack softEdges.
+  for (const [a, b] of data.softEdges ?? []) {
+    const e = mesh.findEdge(mesh.vertex(a), mesh.vertex(b));
+    if (!e) throw new MeshError(`Soft edge ${a}-${b} does not exist`);
+    e.hard = false;
+  }
+
   mesh.nextVertId = Math.max(mesh.nextVertId, data.nextVertId);
   mesh.nextFaceId = Math.max(mesh.nextFaceId, data.nextFaceId);
   return mesh;
@@ -52,15 +59,19 @@ export function toMeshData(mesh: HalfEdgeMesh): MeshData {
     }));
 
   const wireEdges: [number, number][] = [];
+  const softEdges: [number, number][] = [];
   for (const e of mesh.edges()) {
-    if (!e.isWire) continue;
     const a = e.he.origin.id;
     const b = e.he.dest.id;
-    wireEdges.push(a < b ? [a, b] : [b, a]);
+    const pair: [number, number] = a < b ? [a, b] : [b, a];
+    if (e.isWire) wireEdges.push(pair);
+    if (!e.hard) softEdges.push([...pair]);
   }
-  wireEdges.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+  const byPair = (x: [number, number], y: [number, number]) => x[0] - y[0] || x[1] - y[1];
+  wireEdges.sort(byPair);
+  softEdges.sort(byPair);
 
-  return { verts, faces, wireEdges, nextVertId: mesh.nextVertId, nextFaceId: mesh.nextFaceId };
+  return { verts, faces, wireEdges, softEdges, nextVertId: mesh.nextVertId, nextFaceId: mesh.nextFaceId };
 }
 
 /** Deep copy via the serialized form. */

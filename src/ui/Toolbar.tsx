@@ -7,8 +7,10 @@ import {
   selectionMode,
   snapEnabled,
   transformSpace,
+  xray,
   type SelectionMode,
 } from '../editor/state';
+import { setSelectionMode } from '../editor/modes';
 import { TOOLS } from '../editor/tools';
 import { setStandardView, spawnPoint, toggleProjection } from '../editor/viewActions';
 import { createPrimitive } from '../editor/actions';
@@ -87,7 +89,7 @@ export function Toolbar() {
             key={m.id}
             title={`${m.label} mode (${m.key})`}
             active={selectionMode.value === m.id}
-            onClick={() => (selectionMode.value = m.id)}
+            onClick={() => setSelectionMode(m.id)}
           >
             {m.label}
           </Button>
@@ -132,6 +134,13 @@ export function Toolbar() {
           onClick={() => (transformSpace.value = transformSpace.value === 'world' ? 'local' : 'world')}
         >
           {transformSpace.value === 'world' ? 'World' : 'Local'}
+        </Button>
+        <Button
+          title="X-ray (X): see through faces and select hidden elements"
+          active={xray.value}
+          onClick={() => (xray.value = !xray.value)}
+        >
+          X-ray
         </Button>
       </Group>
 

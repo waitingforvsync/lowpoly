@@ -5,8 +5,11 @@ import { validate } from '../core/halfedge/validate';
 import { buildPrimitive, defaultSource } from '../core/primitives';
 import { type Command, History } from '../history/history';
 import type { CommandContext } from './commands';
+import { elementExists } from './components';
 import {
+  clearComponents,
   clearSelection,
+  editObjects,
   pruneSelection,
   restoreSelection,
   type SelectionSnapshot,
@@ -66,6 +69,8 @@ export class Editor {
       this.doc = doc;
       this.fileName.value = fileName;
       clearSelection();
+      clearComponents();
+      editObjects.value = new Set(doc.objects.map((o) => o.id));
       this.history.clear();
     });
   }
@@ -76,8 +81,16 @@ export class Editor {
 
   private afterChange(): void {
     batch(() => {
-      // Deleted or hidden objects can't stay selected.
-      pruneSelection((id) => this.doc.findObject(id)?.visible === true);
+      // Deleted or hidden objects can't stay selected; nor can elements that no longer exist.
+      pruneSelection(
+        (id) => this.doc.findObject(id)?.visible === true,
+        (mode, id, key) => {
+          const obj = this.doc.findObject(id);
+          return !!obj && elementExists(obj.mesh, mode, key);
+        },
+      );
+      const edit = [...editObjects.value].filter((id) => this.doc.findObject(id));
+      if (edit.length !== editObjects.value.size) editObjects.value = new Set(edit);
       this.historyVersion.value++;
       this.docVersion.value++;
     });

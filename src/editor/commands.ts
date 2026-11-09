@@ -8,7 +8,8 @@ import {
   type Transform,
 } from '../core/document';
 import { fromMeshData, toMeshData } from '../core/halfedge/convert';
-import type { MaterialId, MeshData } from '../core/meshdata';
+import type { Vec3 } from '../core/math/vec';
+import type { MaterialId, MeshData, VertId } from '../core/meshdata';
 import type { PrimitiveSource } from '../core/primitives';
 import { type Command, CompositeCommand, FnCommand } from '../history/history';
 
@@ -144,6 +145,47 @@ export class ReplaceMeshCommand implements Command {
     const obj = this.ctx.doc.object(this.id);
     obj.setMesh(fromMeshData(s.mesh));
     obj.source = s.source ? structuredClone(s.source) : null;
+  }
+}
+
+export interface VertexMove {
+  objectId: ObjectId;
+  ids: VertId[];
+  before: Vec3[];
+  after: Vec3[];
+}
+
+/**
+ * Move vertices without changing topology. Cheaper than a full mesh snapshot. Any edit turns a
+ * parametric primitive into a plain mesh, so `source` is cleared (and restored on undo).
+ */
+export class MoveVertsCommand implements Command {
+  private readonly sources: (PrimitiveSource | null)[];
+
+  constructor(
+    private readonly ctx: CommandContext,
+    private readonly moves: VertexMove[],
+    readonly label: string,
+  ) {
+    this.sources = moves.map((m) => ctx.doc.object(m.objectId).source);
+  }
+
+  apply(): void {
+    for (const m of this.moves) this.set(m, m.after, null);
+  }
+
+  revert(): void {
+    this.moves.forEach((m, i) => this.set(m, m.before, this.sources[i] ?? null));
+  }
+
+  private set(m: VertexMove, positions: Vec3[], source: PrimitiveSource | null): void {
+    const obj = this.ctx.doc.object(m.objectId);
+    m.ids.forEach((id, i) => {
+      const p = positions[i]!;
+      obj.mesh.vertex(id).pos = [p[0], p[1], p[2]];
+    });
+    obj.source = source ? structuredClone(source) : null;
+    obj.meshRev++;
   }
 }
 

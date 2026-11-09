@@ -371,3 +371,45 @@ body,
 .sidebar .panel:last-child {
   flex: 3;
 }
+
+/* Box selection: solid for window (left to right), dashed for crossing (right to left). */
+.select-box {
+  position: absolute;
+  pointer-events: none;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.select-box.crossing {
+  border-style: dashed;
+}
+
+.status-error {
+  color: #f0857a;
+}
+
+.status-info {
+  color: var(--text);
+}
+
+.small {
+  font-size: 11px;
+  margin: 0 0 6px;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.segmented {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.segmented .dim {
+  margin-left: 6px;
+}

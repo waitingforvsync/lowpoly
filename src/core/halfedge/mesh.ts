@@ -54,6 +54,12 @@ export class HalfEdge {
 }
 
 export class Edge {
+  /**
+   * Shading hardness. Hard edges split normals (a crease); soft edges smooth normals across
+   * them. Hard is the default, for the faceted low-poly look.
+   */
+  hard = true;
+
   constructor(public he: HalfEdge) {}
 
   get verts(): [Vertex, Vertex] {

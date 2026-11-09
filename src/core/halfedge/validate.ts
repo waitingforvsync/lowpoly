@@ -1,5 +1,6 @@
 import { dot, newellNormal } from '../math/vec';
 import { edgeKey, type HalfEdge, type HalfEdgeMesh, type Loop, MeshError } from './mesh';
+import { isFacePlanar } from '../planarity';
 
 /**
  * Check every structural invariant of a half-edge mesh. Returns a list of problems, which is
@@ -85,6 +86,8 @@ export function validate(mesh: HalfEdgeMesh): string[] {
       } while (h !== loop.he);
       if (count < 3) err(`face ${id}: loop has ${count} corners`);
     }
+
+    if (!isFacePlanar(f)) err(`face ${id}: not planar`);
 
     // Holes wind opposite to the outer loop. Skip degenerate (zero-area) loops.
     const n = newellNormal(f.outer.positions());

@@ -16,6 +16,7 @@ import { editor } from '../editor/editor';
 import { addToSelection, selectedObjects, selectOnly, toggleSelection } from '../editor/selection';
 import { hexToRgb, rgbToHex, TextField } from './fields';
 import { EyeIcon, EyeOffIcon, LockIcon, UnlockIcon } from './icons';
+import { useDoc } from './useDoc';
 import { Empty, Panel } from './Panel';
 
 export function Outliner() {
@@ -50,6 +51,7 @@ export function Outliner() {
 }
 
 function ObjectRow({ obj, selected }: { obj: SceneObject; selected: boolean }) {
+  useDoc();
   const [editing, setEditing] = useState(false);
   const cls = ['tree-row', selected && 'selected', !obj.visible && 'hidden', obj.locked && 'locked']
     .filter(Boolean)
@@ -110,6 +112,7 @@ function ObjectRow({ obj, selected }: { obj: SceneObject; selected: boolean }) {
 }
 
 function MaterialRow({ mat }: { mat: Material }) {
+  useDoc();
   const [editing, setEditing] = useState(false);
   const before = useRef<Vec3 | null>(null);
 

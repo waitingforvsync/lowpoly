@@ -9,4 +9,7 @@ export const COLORS = {
   cursor: 0xffffff,
   edge: 0x16181b,
   selection: 0x4a9dff,
+  componentSelection: 0xff9a2e,
+  hover: 0xffffff,
+  vertex: 0x101214,
 } as const;

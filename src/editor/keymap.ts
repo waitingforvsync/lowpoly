@@ -1,8 +1,18 @@
-import { activeTool, selectionMode, snapEnabled, snapInvertHeld, type SelectionMode } from './state';
+import { activeTool, selectionMode, snapEnabled, snapInvertHeld, xray, type SelectionMode } from './state';
 import { TOOLS } from './tools';
 import { frameSelection, setStandardView, toggleProjection } from './viewActions';
 import { deleteSelection, duplicateSelection, invertSelection, selectAll, selectNone } from './actions';
+import {
+  deleteComponents,
+  dissolveComponents,
+  invertComponents,
+  mergeComponentsAtCenter,
+  mergeComponentsByDistance,
+  selectAllComponents,
+} from './componentActions';
 import { editor } from './editor';
+import { isComponentMode, setSelectionMode } from './modes';
+import { clearComponents } from './selection';
 import { openDocument, saveDocument } from '../io/file';
 import type { StandardView } from '../render/Viewport';
 
@@ -30,15 +40,26 @@ function isTextEntry(target: EventTarget | null): boolean {
   );
 }
 
+/** Run the component-mode action if in a component mode, else the object-mode one. */
+function byMode(objectAction: (() => void) | null, componentAction: (mode: 'vertex' | 'edge' | 'face') => void) {
+  return () => {
+    const mode = selectionMode.value;
+    if (isComponentMode(mode)) componentAction(mode);
+    else objectAction?.();
+  };
+}
+
 /** Ctrl/Cmd shortcuts, keyed by `[shift ? 'S+' : ''] + code`. */
 const CTRL_SHORTCUTS: Record<string, () => void> = {
   KeyZ: () => editor.undo(),
   'S+KeyZ': () => editor.redo(),
   KeyY: () => editor.redo(),
-  KeyD: duplicateSelection,
-  KeyA: selectAll,
-  'S+KeyA': selectNone,
-  KeyI: invertSelection,
+  KeyD: byMode(duplicateSelection, () => {}),
+  KeyA: byMode(selectAll, selectAllComponents),
+  'S+KeyA': byMode(selectNone, (m) => clearComponents(m)),
+  KeyI: byMode(invertSelection, invertComponents),
+  KeyM: byMode(null, mergeComponentsAtCenter),
+  'S+KeyM': byMode(null, mergeComponentsByDistance),
   KeyS: () => void saveDocument(),
   'S+KeyS': () => void saveDocument(true),
   KeyO: () => void openDocument(),
@@ -48,11 +69,14 @@ const CTRL_SHORTCUTS: Record<string, () => void> = {
 const PLAIN_SHORTCUTS: Record<string, () => void> = {
   Numpad5: toggleProjection,
   KeyG: () => (snapEnabled.value = !snapEnabled.value),
+  KeyX: () => (xray.value = !xray.value),
   KeyF: frameSelection,
-  Escape: selectNone,
-  Delete: deleteSelection,
-  Backspace: deleteSelection,
+  Escape: byMode(selectNone, (m) => clearComponents(m)),
+  Delete: byMode(deleteSelection, deleteComponents),
+  Backspace: byMode(deleteSelection, dissolveComponents),
 };
+
+const REPEATABLE = new Set(['KeyZ', 'KeyY']);
 
 function onKeyDown(e: KeyboardEvent): void {
   if (e.key === 'Control') snapInvertHeld.value = true;
@@ -63,7 +87,7 @@ function onKeyDown(e: KeyboardEvent): void {
     const action = CTRL_SHORTCUTS[(e.shiftKey ? 'S+' : '') + e.code];
     if (action) {
       e.preventDefault();
-      if (!e.repeat || e.code === 'KeyZ' || e.code === 'KeyY') action();
+      if (!e.repeat || REPEATABLE.has(e.code)) action();
     }
     return;
   }
@@ -72,13 +96,13 @@ function onKeyDown(e: KeyboardEvent): void {
   const plain = PLAIN_SHORTCUTS[e.code];
   if (plain) {
     e.preventDefault();
-    plain();
+    if (!e.repeat) plain();
     return;
   }
 
   const mode = MODE_KEYS[e.code];
   if (mode) {
-    selectionMode.value = mode;
+    setSelectionMode(mode);
     e.preventDefault();
     return;
   }
@@ -121,4 +145,3 @@ export function installKeymap(): () => void {
     window.removeEventListener('beforeunload', onBeforeUnload);
   };
 }
-

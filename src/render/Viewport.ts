@@ -3,17 +3,28 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { effect } from '@preact/signals';
 import { AxesIndicator } from './AxesIndicator';
 import { COLORS } from './colors';
-import { Gizmo } from './Gizmo';
+import { ComponentOverlay } from './ComponentOverlay';
+import { Gizmo, type GizmoTargets } from './Gizmo';
 import { createGrid } from './grid';
+import { boxComponents, boxObjects, pickComponent, type PickEnv, type Rect } from './Picker';
 import { SceneSync } from './SceneSync';
+import { transformToMatrix } from './transformMath';
 import type { ObjectId } from '../core/document';
 import type { Vec3 } from '../core/math/vec';
 import { editor } from '../editor/editor';
+import { isComponentMode } from '../editor/modes';
 import {
   addToSelection,
+  applyComponents,
+  clearComponents,
   clearSelection,
+  componentSelection,
+  type ComponentRef,
+  editObjects,
+  type SelectOp,
   selectedObjects,
   selectOnly,
+  setSelection,
   toggleSelection,
 } from '../editor/selection';
 import {
@@ -22,9 +33,11 @@ import {
   gridStep,
   projection,
   rotationStep,
+  selectionMode,
   snapEnabled,
   snapInvertHeld,
   transformSpace,
+  xray,
   type Projection,
 } from '../editor/state';
 import { isSnapActive, snapScalar, snapVec3 } from '../editor/snap';
@@ -35,7 +48,7 @@ const FOV_DEG = 45;
 const TAN_HALF_FOV = Math.tan(THREE.MathUtils.degToRad(FOV_DEG) / 2);
 /** The orthographic camera sits this far from the target, so the scene isn't clipped. */
 const ORTHO_CAMERA_DISTANCE = 500;
-/** A press that moves less than this many pixels counts as a click. */
+/** A press that moves less than this many pixels counts as a click; more starts a box select. */
 const CLICK_SLOP_PX = 4;
 
 // Directions from the orbit target to the camera. 'top' is nudged off-axis so the orbit
@@ -47,12 +60,19 @@ const VIEW_DIRECTIONS: Record<StandardView, THREE.Vector3> = {
   iso: new THREE.Vector3(1, -1, 0.8).normalize(),
 };
 
+interface Press {
+  x: number;
+  y: number;
+  boxing: boolean;
+}
+
 /**
  * The 3D viewport. The document and editor are Z-up, and Three.js renders Z-up directly by
  * setting every camera's up vector to +Z. No coordinate conversion happens here.
  *
  * Navigation: middle-drag orbits, Shift+middle or right-drag pans, the wheel zooms toward the
- * cursor. The left button belongs to tools: click to select, or drag the gizmo.
+ * cursor. The left button belongs to tools: click to select, drag for a box selection (left to
+ * right: window; right to left: crossing), or drag the gizmo.
  */
 export class Viewport {
   private readonly renderer: THREE.WebGLRenderer;
@@ -63,8 +83,10 @@ export class Viewport {
   private readonly controls: OrbitControls;
   private readonly axes = new AxesIndicator();
   private readonly sync = new SceneSync();
+  private readonly overlay = new ComponentOverlay();
   private readonly gizmo: Gizmo;
   private readonly cursorMarker: THREE.Points;
+  private readonly boxEl: HTMLDivElement;
   private readonly raycaster = new THREE.Raycaster();
   private readonly groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
   private readonly resizeObserver: ResizeObserver;
@@ -76,8 +98,9 @@ export class Viewport {
   private orthoHalfHeight = 10;
   private renderQueued = false;
   private lastPointer: { x: number; y: number } | null = null;
-  /** Left-button press in progress that may become a click (null if it grabbed the gizmo). */
-  private press: { x: number; y: number } | null = null;
+  /** Left-button press in progress (null if none, or if it grabbed the gizmo). */
+  private press: Press | null = null;
+  private hover: ComponentRef | null = null;
 
   constructor(private readonly container: HTMLElement) {
     THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
@@ -88,6 +111,11 @@ export class Viewport {
     this.renderer.autoClear = false;
     container.appendChild(this.renderer.domElement);
     const canvas = this.renderer.domElement;
+
+    this.boxEl = document.createElement('div');
+    this.boxEl.className = 'select-box';
+    this.boxEl.hidden = true;
+    container.appendChild(this.boxEl);
 
     this.perspCamera = new THREE.PerspectiveCamera(FOV_DEG, 1, 0.01, 2000);
     this.perspCamera.up.set(0, 0, 1);
@@ -116,6 +144,7 @@ export class Viewport {
     sun.position.set(3, -5, 8);
     this.scene.add(sun);
     this.scene.add(this.sync.root);
+    this.scene.add(this.overlay.root);
 
     // Created before our own pointer listeners, so it sees each press first.
     this.gizmo = new Gizmo(this.camera, canvas, this.scene, (dragging) => {
@@ -130,11 +159,13 @@ export class Viewport {
     canvas.addEventListener('pointerleave', this.onPointerLeave);
     canvas.addEventListener('pointerdown', this.onPointerDown);
     canvas.addEventListener('pointerup', this.onPointerUp);
+    canvas.addEventListener('pointercancel', this.onPointerCancel);
     this.disposers.push(() => {
       canvas.removeEventListener('pointermove', this.onPointerMove);
       canvas.removeEventListener('pointerleave', this.onPointerLeave);
       canvas.removeEventListener('pointerdown', this.onPointerDown);
       canvas.removeEventListener('pointerup', this.onPointerUp);
+      canvas.removeEventListener('pointercancel', this.onPointerCancel);
     });
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -145,16 +176,23 @@ export class Viewport {
     this.disposers.push(
       effect(() => {
         void editor.docVersion.value;
-        const selected = selectedObjects.value;
-        this.sync.sync(editor.doc, selected);
-        this.gizmo.update(selected, {
+        const mode = selectionMode.value;
+        const comp = isComponentMode(mode);
+        const xr = xray.value;
+        this.sync.sync(editor.doc, comp ? new Set() : selectedObjects.value, xr);
+        const targets: GizmoTargets = comp
+          ? { kind: 'components', mode, selection: componentSelection[mode].value }
+          : { kind: 'objects', ids: selectedObjects.value };
+        this.gizmo.update(targets, {
           tool: activeTool.value,
           space: transformSpace.value,
           snap: isSnapActive(snapEnabled.value, snapInvertHeld.value),
           gridStep: gridStep.value,
           rotationStepDeg: rotationStep.value,
         });
-        this.requestRender();
+        void editObjects.value;
+        if (!comp) this.hover = null;
+        this.refreshOverlay();
       }),
     );
     this.disposers.push(
@@ -180,7 +218,15 @@ export class Viewport {
   /** Fit the view to the given objects, or to everything when the list is empty. */
   frameObjects(ids: ObjectId[]): void {
     const list = ids.length ? ids : editor.doc.objects.map((o) => o.id);
-    const box = this.sync.bounds(list);
+    this.frameBox(this.sync.bounds(list));
+  }
+
+  /** Fit the view to a set of world-space points. */
+  framePoints(points: Vec3[]): void {
+    this.frameBox(new THREE.Box3().setFromPoints(points.map((p) => new THREE.Vector3(...p))));
+  }
+
+  private frameBox(box: THREE.Box3): void {
     if (box.isEmpty()) return;
     const sphere = box.getBoundingSphere(new THREE.Sphere());
     const radius = Math.max(sphere.radius, 0.25);
@@ -214,6 +260,7 @@ export class Viewport {
     this.controls.dispose();
     this.axes.dispose();
     this.sync.dispose();
+    this.overlay.dispose();
     this.scene.traverse((obj) => {
       if (obj instanceof THREE.Line || obj instanceof THREE.Points) {
         obj.geometry.dispose();
@@ -222,6 +269,7 @@ export class Viewport {
     });
     this.renderer.dispose();
     this.renderer.domElement.remove();
+    this.boxEl.remove();
   }
 
   private readonly requestRender = (): void => {
@@ -246,6 +294,7 @@ export class Viewport {
     this.perspCamera.aspect = this.width / this.height;
     this.perspCamera.updateProjectionMatrix();
     this.updateOrthoFrustum();
+    this.overlay.setResolution(this.width, this.height);
     this.render(); // render synchronously so the canvas never shows a cleared frame
   }
 
@@ -288,6 +337,63 @@ export class Viewport {
     this.requestRender();
   }
 
+  private refreshOverlay(): void {
+    const mode = selectionMode.peek();
+    this.overlay.update(
+      editor.doc,
+      isComponentMode(mode)
+        ? {
+            mode,
+            editIds: editObjects.peek(),
+            selection: componentSelection[mode].peek(),
+            hover: this.hover,
+            xray: xray.peek(),
+          }
+        : null,
+    );
+    this.requestRender();
+  }
+
+  // --- Picking -----------------------------------------------------------------------------------
+
+  private pickEnv(): PickEnv {
+    const doc = editor.doc;
+    const mode = selectionMode.peek();
+    const ids = isComponentMode(mode)
+      ? [...editObjects.peek()]
+      : doc.objects.filter((o) => o.visible && !o.locked).map((o) => o.id);
+    this.sync.root.updateMatrixWorld(true);
+    const targets = ids
+      .map((id) => doc.findObject(id))
+      .filter((o) => o && o.visible)
+      .map((obj) => ({ obj: obj!, matrix: transformToMatrix(obj!.transform), mesh: this.sync.meshOf(obj!.id)! }))
+      .filter((t) => t.mesh);
+    const occluders = doc.objects
+      .filter((o) => o.visible)
+      .map((o) => this.sync.meshOf(o.id))
+      .filter((m): m is THREE.Mesh => !!m);
+    return { camera: this.camera, width: this.width, height: this.height, targets, occluders, xray: xray.peek() };
+  }
+
+  private pickObject(x: number, y: number): ObjectId | null {
+    this.sync.root.updateMatrixWorld(true);
+    this.raycaster.setFromCamera(this.ndc(x, y), this.camera);
+    const hit = this.raycaster.intersectObjects(this.sync.pickables(editor.doc), false)[0];
+    return hit ? (hit.object.userData.objectId as ObjectId) : null;
+  }
+
+  private updateHover(): void {
+    const mode = selectionMode.peek();
+    let next: ComponentRef | null = null;
+    if (isComponentMode(mode) && this.lastPointer && !this.press && !this.gizmo.dragging) {
+      next = pickComponent(this.pickEnv(), mode, this.lastPointer.x, this.lastPointer.y);
+    }
+    if (next?.objectId !== this.hover?.objectId || next?.key !== this.hover?.key) {
+      this.hover = next;
+      this.refreshOverlay();
+    }
+  }
+
   // --- Pointer handling --------------------------------------------------------------------------
 
   private localPoint(e: PointerEvent): { x: number; y: number } {
@@ -298,48 +404,105 @@ export class Viewport {
   private readonly onPointerMove = (e: PointerEvent): void => {
     this.lastPointer = this.localPoint(e);
     this.updateCursor();
+
+    const press = this.press;
+    if (press) {
+      const p = this.lastPointer;
+      if (!press.boxing && Math.hypot(p.x - press.x, p.y - press.y) > CLICK_SLOP_PX) press.boxing = true;
+      if (press.boxing) this.drawBox(press, p);
+      return;
+    }
+    this.updateHover();
   };
 
   private readonly onPointerLeave = (): void => {
     this.lastPointer = null;
     this.updateCursor();
+    if (!this.press) this.updateHover();
   };
 
   private readonly onPointerDown = (e: PointerEvent): void => {
     if (e.button !== 0) return;
-    // The gizmo handles the press first; if it grabbed a handle, this isn't a selection click.
-    this.press = this.gizmo.dragging ? null : this.localPoint(e);
+    // The gizmo handles the press first; if it grabbed a handle, this isn't a selection.
+    if (this.gizmo.dragging) {
+      this.press = null;
+      return;
+    }
+    const p = this.localPoint(e);
+    this.press = { x: p.x, y: p.y, boxing: false };
+    this.renderer.domElement.setPointerCapture(e.pointerId);
+  };
+
+  private readonly onPointerCancel = (): void => {
+    this.press = null;
+    this.boxEl.hidden = true;
   };
 
   private readonly onPointerUp = (e: PointerEvent): void => {
-    if (e.button !== 0 || !this.press) return;
-    const p = this.localPoint(e);
-    const moved = Math.hypot(p.x - this.press.x, p.y - this.press.y);
+    const press = this.press;
+    if (e.button !== 0 || !press) return;
     this.press = null;
-    if (moved > CLICK_SLOP_PX) return;
+    this.boxEl.hidden = true;
+    const p = this.localPoint(e);
+    const op: SelectOp = e.ctrlKey || e.metaKey ? 'toggle' : e.shiftKey ? 'add' : 'replace';
 
-    const id = this.pickObject(p.x, p.y);
-    const additive = e.shiftKey;
-    const toggle = e.ctrlKey || e.metaKey;
-    if (id === null) {
-      if (!additive && !toggle) clearSelection();
-    } else if (toggle) {
-      toggleSelection(id);
-    } else if (additive) {
-      addToSelection(id);
+    if (press.boxing) {
+      const rect: Rect = {
+        x0: Math.min(press.x, p.x),
+        y0: Math.min(press.y, p.y),
+        x1: Math.max(press.x, p.x),
+        y1: Math.max(press.y, p.y),
+      };
+      // Dragging right-to-left selects anything touched (crossing), as in SketchUp.
+      this.boxSelect(rect, p.x < press.x, op === 'toggle' ? 'remove' : op);
     } else {
-      selectOnly(id);
+      this.clickSelect(p.x, p.y, op);
     }
+    this.updateHover();
   };
+
+  private clickSelect(x: number, y: number, op: SelectOp): void {
+    const mode = selectionMode.peek();
+    if (isComponentMode(mode)) {
+      const ref = pickComponent(this.pickEnv(), mode, x, y);
+      if (ref) applyComponents(mode, [ref], op);
+      else if (op === 'replace') clearComponents(mode);
+      return;
+    }
+    const id = this.pickObject(x, y);
+    if (id === null) {
+      if (op === 'replace') clearSelection();
+    } else if (op === 'toggle') toggleSelection(id);
+    else if (op === 'add') addToSelection(id);
+    else selectOnly(id);
+  }
+
+  private boxSelect(rect: Rect, crossing: boolean, op: 'replace' | 'add' | 'remove'): void {
+    const mode = selectionMode.peek();
+    const env = this.pickEnv();
+    if (isComponentMode(mode)) {
+      applyComponents(mode, boxComponents(env, mode, rect, crossing), op);
+      return;
+    }
+    const ids = boxObjects(env, rect, crossing);
+    const current = selectedObjects.peek();
+    if (op === 'replace') setSelection(ids);
+    else if (op === 'add') setSelection([...current, ...ids]);
+    else setSelection([...current].filter((id) => !ids.includes(id)));
+  }
+
+  private drawBox(press: Press, p: { x: number; y: number }): void {
+    const el = this.boxEl;
+    el.hidden = false;
+    el.classList.toggle('crossing', p.x < press.x);
+    el.style.left = `${Math.min(press.x, p.x)}px`;
+    el.style.top = `${Math.min(press.y, p.y)}px`;
+    el.style.width = `${Math.abs(p.x - press.x)}px`;
+    el.style.height = `${Math.abs(p.y - press.y)}px`;
+  }
 
   private ndc(x: number, y: number): THREE.Vector2 {
     return new THREE.Vector2((x / this.width) * 2 - 1, -(y / this.height) * 2 + 1);
-  }
-
-  private pickObject(x: number, y: number): ObjectId | null {
-    this.raycaster.setFromCamera(this.ndc(x, y), this.camera);
-    const hit = this.raycaster.intersectObjects(this.sync.pickables(editor.doc), false)[0];
-    return hit ? (hit.object.userData.objectId as ObjectId) : null;
   }
 
   /** Project the pointer onto the ground plane, snap it to the grid and publish it. */

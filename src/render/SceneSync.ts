@@ -10,6 +10,7 @@ interface Entry {
   group: THREE.Group;
   mesh: THREE.Mesh;
   lines: THREE.LineSegments;
+  softLines: THREE.LineSegments;
   meshRev: number;
   /** Material id per geometry group. */
   groupMaterials: MaterialId[];
@@ -25,13 +26,29 @@ export class SceneSync {
   private readonly materials = new Map<MaterialId, THREE.MeshStandardMaterial>();
   private readonly edgeMaterial = new THREE.LineBasicMaterial({ color: COLORS.edge });
   private readonly selectedEdgeMaterial = new THREE.LineBasicMaterial({ color: COLORS.selection });
+  /** Soft edges: drawn faintly, so smooth surfaces read as smooth. */
+  private readonly softEdgeMaterial = new THREE.LineBasicMaterial({ color: COLORS.edge, transparent: true, opacity: 0.25 });
+  private readonly selectedSoftEdgeMaterial = new THREE.LineBasicMaterial({
+    color: COLORS.selection,
+    transparent: true,
+    opacity: 0.4,
+  });
 
   constructor() {
     this.root.name = 'document';
   }
 
-  sync(doc: Document, selected: ReadonlySet<ObjectId>): void {
-    this.syncMaterials(doc);
+  /** Mesh for an object, if it has been synced. */
+  meshOf(id: ObjectId): THREE.Mesh | undefined {
+    return this.entries.get(id)?.mesh;
+  }
+
+  /**
+   * @param selected objects drawn with highlighted edges
+   * @param xray draw faces translucent so hidden geometry shows through
+   */
+  sync(doc: Document, selected: ReadonlySet<ObjectId>, xray = false): void {
+    this.syncMaterials(doc, xray);
 
     const live = new Set<ObjectId>();
     for (const obj of doc.objects) {
@@ -46,7 +63,9 @@ export class SceneSync {
 
       applyTransform(entry.group, obj.transform);
       entry.group.visible = obj.visible;
-      entry.lines.material = selected.has(obj.id) ? this.selectedEdgeMaterial : this.edgeMaterial;
+      const sel = selected.has(obj.id);
+      entry.lines.material = sel ? this.selectedEdgeMaterial : this.edgeMaterial;
+      entry.softLines.material = sel ? this.selectedSoftEdgeMaterial : this.softEdgeMaterial;
       entry.mesh.material = entry.groupMaterials.map(
         (id) => this.materials.get(id) ?? this.materials.get(DEFAULT_MATERIAL_ID)!,
       );
@@ -57,6 +76,7 @@ export class SceneSync {
       this.root.remove(entry.group);
       entry.mesh.geometry.dispose();
       entry.lines.geometry.dispose();
+      entry.softLines.geometry.dispose();
       this.entries.delete(id);
     }
   }
@@ -89,20 +109,23 @@ export class SceneSync {
     for (const e of this.entries.values()) {
       e.mesh.geometry.dispose();
       e.lines.geometry.dispose();
+      e.softLines.geometry.dispose();
     }
     for (const m of this.materials.values()) m.dispose();
     this.edgeMaterial.dispose();
     this.selectedEdgeMaterial.dispose();
+    this.softEdgeMaterial.dispose();
+    this.selectedSoftEdgeMaterial.dispose();
   }
 
-  private syncMaterials(doc: Document): void {
+  private syncMaterials(doc: Document, xray: boolean): void {
     const live = new Set<MaterialId>();
     for (const m of doc.materials) {
       live.add(m.id);
       let mat = this.materials.get(m.id);
       if (!mat) {
         mat = new THREE.MeshStandardMaterial({
-          flatShading: true,
+          // Normals come from the mesh: flat per face, smoothed across soft edges.
           side: THREE.DoubleSide,
           roughness: 0.85,
           metalness: 0,
@@ -114,6 +137,12 @@ export class SceneSync {
         this.materials.set(m.id, mat);
       }
       mat.color.setRGB(m.color[0], m.color[1], m.color[2], THREE.SRGBColorSpace);
+      if (mat.transparent !== xray) {
+        mat.transparent = xray;
+        mat.opacity = xray ? 0.35 : 1;
+        mat.depthWrite = !xray;
+        mat.needsUpdate = true;
+      }
     }
     for (const [id, mat] of this.materials) {
       if (!live.has(id)) {
@@ -129,9 +158,11 @@ export class SceneSync {
     const mesh = new THREE.Mesh(new THREE.BufferGeometry());
     mesh.userData.objectId = obj.id;
     const lines = new THREE.LineSegments(new THREE.BufferGeometry(), this.edgeMaterial);
-    lines.raycast = () => {}; // edges are not pickable in object mode
-    group.add(mesh, lines);
-    return { group, mesh, lines, meshRev: -1, groupMaterials: [] };
+    const softLines = new THREE.LineSegments(new THREE.BufferGeometry(), this.softEdgeMaterial);
+    lines.raycast = () => {}; // edges are picked by the Picker, not by raycasting lines
+    softLines.raycast = () => {};
+    group.add(mesh, lines, softLines);
+    return { group, mesh, lines, softLines, meshRev: -1, groupMaterials: [] };
   }
 
   private rebuildGeometry(entry: Entry, obj: SceneObject): void {
@@ -152,6 +183,11 @@ export class SceneSync {
     lineGeo.setAttribute('position', new THREE.BufferAttribute(b.edges, 3));
     entry.lines.geometry.dispose();
     entry.lines.geometry = lineGeo;
+
+    const softGeo = new THREE.BufferGeometry();
+    softGeo.setAttribute('position', new THREE.BufferAttribute(b.softEdges, 3));
+    entry.softLines.geometry.dispose();
+    entry.softLines.geometry = softGeo;
 
     entry.meshRev = obj.meshRev;
   }

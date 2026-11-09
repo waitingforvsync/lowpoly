@@ -9,6 +9,8 @@ import type { Vec2, Vec3 } from './math/vec';
  * - Each face corner carries its own UV, so UV seams are implicit.
  * - `loops[0]` is the outer boundary, counter-clockwise about the face normal.
  *   `loops[1..]` are holes, clockwise about the face normal.
+ * - Every face is planar (see core/planarity.ts).
+ * - Edges are hard unless listed in `softEdges`.
  */
 
 export type VertId = number;
@@ -35,12 +37,14 @@ export interface MeshData {
   verts: VertData[];
   faces: FaceData[];
   wireEdges: [VertId, VertId][];
+  /** Edges with smoothed shading, as sorted vertex pairs. All other edges are hard. */
+  softEdges: [VertId, VertId][];
   nextVertId: VertId;
   nextFaceId: FaceId;
 }
 
 export function emptyMeshData(): MeshData {
-  return { verts: [], faces: [], wireEdges: [], nextVertId: 0, nextFaceId: 0 };
+  return { verts: [], faces: [], wireEdges: [], softEdges: [], nextVertId: 0, nextFaceId: 0 };
 }
 
 /** Deep copy. MeshData is plain JSON-compatible data. */
@@ -53,6 +57,7 @@ export function cloneMeshData(m: MeshData): MeshData {
       loops: f.loops.map((loop) => loop.map((c) => ({ v: c.v, uv: [c.uv[0], c.uv[1]] }))),
     })),
     wireEdges: m.wireEdges.map(([a, b]) => [a, b]),
+    softEdges: m.softEdges.map(([a, b]) => [a, b]),
     nextVertId: m.nextVertId,
     nextFaceId: m.nextFaceId,
   };

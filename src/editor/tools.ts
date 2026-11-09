@@ -23,7 +23,7 @@ export interface ToolDef {
 }
 
 export const TOOLS: readonly ToolDef[] = [
-  { id: 'select', label: 'Select', code: 'Space', key: 'Space', hint: 'Click to select. Shift adds, Ctrl toggles. Esc clears.' },
+  { id: 'select', label: 'Select', code: 'Space', key: 'Space', hint: 'Click to select; drag left→right for a window, right→left for a crossing box. Shift adds, Ctrl toggles. Esc clears.' },
   { id: 'move', label: 'Move', code: 'KeyM', key: 'M', hint: 'Drag the gizmo to move the selection. Type a distance to set it exactly.' },
   { id: 'rotate', label: 'Rotate', code: 'KeyQ', key: 'Q', hint: 'Drag the gizmo to rotate the selection. Type an angle to set it exactly.' },
   { id: 'scale', label: 'Scale', code: 'KeyS', key: 'S', hint: 'Drag the gizmo to scale the selection. Type a factor to set it exactly.' },

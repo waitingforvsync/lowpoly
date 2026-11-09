@@ -167,14 +167,23 @@ describe('joinFaces', () => {
     const m = fromMeshData(quadData());
     expect(() => joinFaces(m, m.findEdge(m.vertex(0), m.vertex(1))!)).toThrow(/both sides/);
 
-    // Joining top + front on a cube is fine (they share one edge)...
+    // A quad fanned into 4 triangles around a centre vertex: after merging three of them, the
+    // result shares two edges (both meeting at the centre) with the last triangle.
+    const fan = new HalfEdgeMesh();
+    const c = [fan.addVertex([0, 0, 0]), fan.addVertex([1, 0, 0]), fan.addVertex([1, 1, 0]), fan.addVertex([0, 1, 0])];
+    const mid = fan.addVertex([0.5, 0.5, 0]);
+    for (let i = 0; i < 4; i++) fan.addFace([[{ v: c[i]! }, { v: c[(i + 1) % 4]! }, { v: mid }]]);
+    joinFaces(fan, fan.findEdge(c[1]!, mid)!);
+    joinFaces(fan, fan.findEdge(c[2]!, mid)!);
+    expect(validate(fan)).toEqual([]);
+    expect(() => joinFaces(fan, fan.findEdge(c[3]!, mid)!)).toThrow(/share 2 edges/);
+    expect(validate(fan)).toEqual([]);
+  });
+
+  it('refuses to join faces that are not coplanar', () => {
     const c = fromMeshData(cubeData());
-    const f = joinFaces(c, c.findEdge(c.vertex(4), c.vertex(5))!);
-    expect(validate(c)).toEqual([]);
-    expect(f.outer.verts()).toHaveLength(6);
-    // ...but the merged face now shares two edges (1-5 and 5-6) with the right face.
-    expect(() => joinFaces(c, c.findEdge(c.vertex(1), c.vertex(5))!)).toThrow(/share 2 edges/);
-    expect(validate(c)).toEqual([]);
+    expect(() => joinFaces(c, c.findEdge(c.vertex(4), c.vertex(5))!)).toThrow(/not coplanar/);
+    expect(toMeshData(c)).toEqual(cubeData());
   });
 });
 

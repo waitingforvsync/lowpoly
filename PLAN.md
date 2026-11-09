@@ -80,6 +80,15 @@ Face     { id, outer: Loop, holes: Loop[], material }
 - UV lives on the half-edge (= the face corner at its origin vertex).
 - Faces own **hole loops**. A hole's half-edges are twins of the half-edges of whatever
   fills the hole: another face, or the open boundary.
+- **Strictly planar faces.** Every face (outer loop and holes) lies within a small tolerance of
+  its best-fit plane, and `validate` enforces it. Triangulation exists only for rendering and export.
+  Edits that bend faces **fold** them into planar pieces (SketchUp-style, `ops/planarize.ts`).
+  Moving one corner of a quad folds along the diagonal between that corner's neighbours, and the
+  unmoved part keeps its plane. Merging operations (join faces, dissolve vertex, add hole) refuse
+  non-coplanar results instead. A bent face with holes is refused. Fold edges are hard.
+- **Edge hardness.** Each edge is hard (default: normals split, faceted) or soft (normals
+  smoothed across it). This is shading only: soft edges are drawn faintly and stay selectable.
+  Serialized as a sparse `softEdges` list in `MeshData`.
 - **Manifold constraint:** each edge has at most 2 faces. Import/load splits non-manifold
   edges, and operations validate their results. (SketchUp permits non-manifold geometry. We don't.)
 - **Primitive operators** on `HalfEdgeMesh`: `addVertex`, `removeVertex`, `addEdge` (wire),
@@ -287,15 +296,16 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
 | `B` | Paint bucket (Alt+click samples a material) |
 | `K` | Loop cut |
 | `J` | Connect vertices |
-| `Ctrl+M` | Merge vertices |
+| `Ctrl+M` | Merge selected vertices at their centre |
+| `Ctrl+Shift+M` | Weld coincident vertices in the selection (merge by distance) |
 | `Delete` | Delete selection |
 | `Backspace` | Dissolve selection (component modes); delete (object mode) |
 | `Ctrl+Z` / `Ctrl+Y` (or `Ctrl+Shift+Z`) | Undo / Redo |
 | `Ctrl+D` | Duplicate |
 | `Ctrl+A` / `Ctrl+Shift+A` / `Ctrl+I` | Select all / none / invert |
 | `Esc` | Cancel current tool operation / clear selection |
-| `Shift` + click | Add to selection |
-| `Ctrl` + click | Toggle in selection |
+| `Shift` + click / drag | Add to selection |
+| `Ctrl` + click / drag | Toggle in selection (click) / remove from selection (drag) |
 | `Alt` + click | Select edge loop (edge mode) |
 | `F` | Frame selection |
 | `Numpad 7 / 1 / 3 / 0` | Top / Front / Right / Iso view |

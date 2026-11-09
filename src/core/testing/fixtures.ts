@@ -38,6 +38,7 @@ export function cubeData(): MeshData {
       { id: 5, material: 0, loops: [loop([1, 2, 6, 5])] }, // right (+X)
     ],
     wireEdges: [],
+    softEdges: [],
     nextVertId: 8,
     nextFaceId: 6,
   };
@@ -54,6 +55,7 @@ export function quadData(): MeshData {
     ]),
     faces: [{ id: 0, material: 0, loops: [loop([0, 1, 2, 3])] }],
     wireEdges: [],
+    softEdges: [],
     nextVertId: 4,
     nextFaceId: 1,
   };
@@ -73,6 +75,7 @@ export function twoTrianglesData(): MeshData {
       { id: 1, material: 1, loops: [loop([1, 2, 3], [[1, 0], [1, 1], [0, 1]])] },
     ],
     wireEdges: [],
+    softEdges: [],
     nextVertId: 4,
     nextFaceId: 2,
   };
@@ -95,6 +98,7 @@ export function squareWithHoleData(): MeshData {
     verts: verts(ps),
     faces: [{ id: 0, material: 0, loops: [uvLoop([0, 1, 2, 3]), uvLoop([4, 5, 6, 7])] }],
     wireEdges: [],
+    softEdges: [],
     nextVertId: 8,
     nextFaceId: 1,
   };

@@ -12,10 +12,30 @@ import {
   setPrimitiveSource,
 } from '../editor/actions';
 import { editor } from '../editor/editor';
-import { selectedObjects } from '../editor/selection';
-import { activeTool, gridStep, rotationStep, snapEnabled } from '../editor/state';
+import {
+  componentCount,
+  componentSelection,
+  editObjects,
+  selectedObjects,
+  type ComponentMode,
+} from '../editor/selection';
+import { activeTool, gridStep, rotationStep, selectionMode, snapEnabled } from '../editor/state';
+import {
+  assignMaterialToFaces,
+  componentCentroid,
+  deleteComponents,
+  dissolveComponents,
+  mergeComponentsAtCenter,
+  mergeComponentsByDistance,
+  moveComponentsTo,
+  selectedEdgesHard,
+  selectedFacesMaterial,
+  setEdgesHard,
+} from '../editor/componentActions';
+import { isComponentMode } from '../editor/modes';
 import { toolById } from '../editor/tools';
 import { NumberField, TextField, Vec3Field } from './fields';
+import { useDoc } from './useDoc';
 import { Empty, Panel } from './Panel';
 
 /** Context-sensitive properties: the selection, then options for the active tool. */
@@ -24,6 +44,16 @@ export function Properties() {
   void selectedObjects.value;
   const ids = selectedIds();
   const doc = editor.doc;
+
+  const mode = selectionMode.value;
+  if (isComponentMode(mode)) {
+    return (
+      <Panel title="Properties">
+        <ComponentProps mode={mode} />
+        <ToolOptions />
+      </Panel>
+    );
+  }
 
   return (
     <Panel title="Properties">
@@ -36,6 +66,7 @@ export function Properties() {
 }
 
 function ObjectProps({ obj }: { obj: SceneObject }) {
+  useDoc();
   const t = obj.transform;
   const setT = (part: 'position' | 'rotation' | 'scale', label: string) => (v: [number, number, number]) => {
     const next = cloneTransform(t);
@@ -95,6 +126,7 @@ function ObjectProps({ obj }: { obj: SceneObject }) {
 }
 
 function PrimitiveProps({ id, source }: { id: number; source: PrimitiveSource }) {
+  useDoc();
   const def = PRIMITIVES[source.type];
   const params = source.params as unknown as Record<string, number>;
   return (
@@ -123,7 +155,7 @@ function PrimitiveProps({ id, source }: { id: number; source: PrimitiveSource })
 }
 
 function MultiProps({ ids }: { ids: number[] }) {
-  const doc = editor.doc;
+  const doc = useDoc();
   const allVisible = ids.every((id) => doc.object(id).visible);
   const allLocked = ids.every((id) => doc.object(id).locked);
   return (
@@ -147,8 +179,120 @@ function MultiProps({ ids }: { ids: number[] }) {
   );
 }
 
+const NOUN: Record<ComponentMode, [string, string]> = {
+  vertex: ['vertex', 'vertices'],
+  edge: ['edge', 'edges'],
+  face: ['face', 'faces'],
+};
+
+function ComponentProps({ mode }: { mode: ComponentMode }) {
+  void componentSelection[mode].value;
+  const doc = useDoc();
+  const count = componentCount(mode);
+  const editing = [...editObjects.value].map((id) => doc.findObject(id)?.name).filter(Boolean);
+  const centroid = componentCentroid(mode);
+  const faceMat = mode === 'face' ? selectedFacesMaterial() : undefined;
+  const edgeHard = mode === 'edge' ? selectedEdgesHard() : undefined;
+
+  return (
+    <>
+      <h3 class="subhead">
+        {count} {NOUN[mode][count === 1 ? 0 : 1]} selected
+      </h3>
+      <p class="dim small">Editing: {editing.length ? editing.join(', ') : 'nothing'}</p>
+      {centroid && (
+        <dl class="props">
+          <dt>{count === 1 && mode === 'vertex' ? 'Position' : 'Centre'}</dt>
+          <dd>
+            <Vec3Field value={centroid} onCommit={(v) => moveComponentsTo(mode, v)} />
+          </dd>
+          {mode === 'edge' && (
+            <>
+              <dt>Shading</dt>
+              <dd class="segmented">
+                <button
+                  type="button"
+                  class={edgeHard === true ? 'tb-button active' : 'tb-button'}
+                  title="Hard: a crease; normals split across the edge"
+                  onClick={() => setEdgesHard(true)}
+                >
+                  Hard
+                </button>
+                <button
+                  type="button"
+                  class={edgeHard === false ? 'tb-button active' : 'tb-button'}
+                  title="Soft: normals are smoothed across the edge"
+                  onClick={() => setEdgesHard(false)}
+                >
+                  Soft
+                </button>
+                {edgeHard === null && <span class="dim">Mixed</span>}
+              </dd>
+            </>
+          )}
+          {mode === 'face' && (
+            <>
+              <dt>Material</dt>
+              <dd>
+                <select
+                  class="field"
+                  value={faceMat === null || faceMat === undefined ? '' : String(faceMat)}
+                  onChange={(e) => assignMaterialToFaces(Number(e.currentTarget.value))}
+                >
+                  {(faceMat === null || faceMat === undefined) && (
+                    <option value="" disabled>
+                      Mixed
+                    </option>
+                  )}
+                  {doc.materials.map((m) => (
+                    <option key={m.id} value={String(m.id)}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </dd>
+            </>
+          )}
+        </dl>
+      )}
+      <div class="button-row">
+        <button type="button" class="tb-button" disabled={!count} title="Delete (Del)" onClick={() => deleteComponents(mode)}>
+          Delete
+        </button>
+        <button
+          type="button"
+          class="tb-button"
+          disabled={!count}
+          title="Dissolve: remove while keeping the surface closed (Backspace)"
+          onClick={() => dissolveComponents(mode)}
+        >
+          Dissolve
+        </button>
+        <button
+          type="button"
+          class="tb-button"
+          disabled={!count}
+          title="Merge selected vertices at their centre (Ctrl+M)"
+          onClick={() => mergeComponentsAtCenter(mode)}
+        >
+          Merge
+        </button>
+        <button
+          type="button"
+          class="tb-button"
+          disabled={!count}
+          title="Weld coincident vertices in the selection (Ctrl+Shift+M)"
+          onClick={() => mergeComponentsByDistance(mode)}
+        >
+          Weld
+        </button>
+      </div>
+    </>
+  );
+}
+
 function MaterialSelect({ ids }: { ids: number[] }) {
-  const doc = editor.doc;
+  const doc = useDoc();
   const mats = ids.map(objectMaterial);
   const common = mats.every((m) => m === mats[0]) ? mats[0] : null;
   return (
