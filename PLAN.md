@@ -66,23 +66,30 @@ interface MeshData {
 ### Working form: `HalfEdgeMesh`
 
 ```
-Vertex   { id, pos, he: HalfEdge | null }               // any outgoing half-edge
+Vertex   { id, pos, out: HalfEdge[] }                   // unordered outgoing half-edges
 HalfEdge { origin: Vertex, twin, next, prev, edge, loop: Loop | null, uv }
 Edge     { he }                                         // one per undirected edge
-Loop     { face, he, isHole }                           // a boundary cycle of a face
+Loop     { face, he }                                   // a boundary cycle of a face
 Face     { id, outer: Loop, holes: Loop[], material }
 ```
 
-- A half-edge with `loop === null` is on the open boundary, or is a wire edge.
+- A half-edge with `loop === null` is on the open boundary, or is a wire edge. Such
+  half-edges have no `next`/`prev`. Vertex adjacency comes from the per-vertex `out` lists
+  instead of boundary cycles. That avoids fragile boundary relinking, and it supports wire
+  edges and vertices where separate fans meet. Edges are indexed by vertex pair for O(1) lookup.
 - UV lives on the half-edge (= the face corner at its origin vertex).
 - Faces own **hole loops**. A hole's half-edges are twins of the half-edges of whatever
   fills the hole: another face, or the open boundary.
 - **Manifold constraint:** each edge has at most 2 faces. Import/load splits non-manifold
   edges, and operations validate their results. (SketchUp permits non-manifold geometry. We don't.)
-- **Euler operators** are the building blocks, and every op is written in terms of them:
-  `makeVert`, `makeEdge`, `makeFace(loops)`, `killFace`, `killEdge`, `splitEdge`,
-  `splitFace(v1, v2)` (connect two vertices on the same loop), `joinFaces(edge)` (dissolve),
-  `makeHole` / `killHole` (bridging edge between an outer loop and a hole loop).
+- **Primitive operators** on `HalfEdgeMesh`: `addVertex`, `removeVertex`, `addEdge` (wire),
+  `removeEdge`, `addFace(loops)`, `removeFace`. Each checks its preconditions before
+  mutating, so a thrown `MeshError` leaves the mesh unchanged.
+- **Topological operators** (`halfedge/euler.ts`): `splitEdge`, `splitFace(va, vb)`,
+  `joinFaces(edge)`, `addHole(face, corners, {fill})`, `fillHole`, `removeHole`. They rebuild
+  the affected faces through `addFace`/`removeFace`, so the one validated primitive does all
+  the pointer work, and they roll back fully on failure. Every modelling op is written in
+  terms of these.
 - `validate(mesh)` checks twin/next/prev consistency, loop closure and orientation, and
   manifoldness. It runs in all unit tests and, in dev builds, after every op.
 
