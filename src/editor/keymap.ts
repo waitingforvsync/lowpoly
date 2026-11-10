@@ -15,6 +15,8 @@ import { installMeasure, measureKey } from './measure';
 import { isComponentMode, setSelectionMode } from './modes';
 import { clearComponents } from './selection';
 import { connectSelection, makeFaceFromSelection } from './modelActions';
+import { joinObjects } from './objectActions';
+import { growSelection, selectLinked, shrinkSelection } from './selectActions';
 import { openDocument, saveDocument } from '../io/file';
 import type { StandardView } from '../render/Viewport';
 
@@ -66,6 +68,12 @@ const CTRL_SHORTCUTS: Record<string, () => void> = {
   'S+KeyS': () => void saveDocument(true),
   KeyO: () => void openDocument(),
   KeyF: byMode(null, makeFaceFromSelection),
+  KeyJ: byMode(joinObjects, () => {}),
+  KeyL: byMode(null, selectLinked),
+  Equal: byMode(null, growSelection),
+  NumpadAdd: byMode(null, growSelection),
+  Minus: byMode(null, shrinkSelection),
+  NumpadSubtract: byMode(null, shrinkSelection),
 };
 
 /** Plain-key shortcuts (no modifiers). */
@@ -80,7 +88,7 @@ const PLAIN_SHORTCUTS: Record<string, () => void> = {
   KeyJ: byMode(null, connectSelection),
 };
 
-const REPEATABLE = new Set(['KeyZ', 'KeyY']);
+const REPEATABLE = new Set(['KeyZ', 'KeyY', 'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract']);
 
 function onKeyDown(e: KeyboardEvent): void {
   if (e.key === 'Control') snapInvertHeld.value = true;

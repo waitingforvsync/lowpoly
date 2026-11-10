@@ -19,6 +19,7 @@ import { measureTyped } from '../editor/measure';
 import type { ToolId } from '../editor/tools';
 import { editor } from '../editor/editor';
 import { paintFaces, sampleMaterial } from '../editor/materialActions';
+import { selectEdgeLoop } from '../editor/selectActions';
 import { isComponentMode } from '../editor/modes';
 import {
   addToSelection,
@@ -633,16 +634,18 @@ export class Viewport {
       // Dragging right-to-left selects anything touched (crossing), as in SketchUp.
       this.boxSelect(rect, p.x < press.x, op === 'toggle' ? 'remove' : op);
     } else {
-      this.clickSelect(p.x, p.y, op);
+      this.clickSelect(p.x, p.y, op, e.altKey);
     }
     this.updateHover();
   };
 
-  private clickSelect(x: number, y: number, op: SelectOp): void {
+  private clickSelect(x: number, y: number, op: SelectOp, alt = false): void {
     const mode = selectionMode.peek();
     if (isComponentMode(mode)) {
       const ref = pickComponent(this.pickEnv(), mode, x, y);
-      if (ref) applyComponents(mode, [ref], op);
+      // Edge mode, Alt+click: the whole edge loop.
+      if (ref && alt && mode === 'edge') selectEdgeLoop(ref, op);
+      else if (ref) applyComponents(mode, [ref], op);
       else if (op === 'replace') clearComponents(mode);
       return;
     }

@@ -367,3 +367,36 @@ way (with what they taught). Newest entries at the bottom of each milestone. See
   ("port in use"), while the tests quietly ran against the old process. It still served current
   source, so the results held, but I only noticed because of the failure notice. *Lesson: check the
   port is free after stopping a server, and kill the actual `node … vite.js` process.*
+
+---
+
+## M8 — Object operations and selection commands
+
+### Decisions
+- **Geometry changes are baked into the mesh** through affine maps on `MeshData`
+  (`core/ops/object.ts`), so the operations stay simple, exact and undoable as mesh snapshots.
+  A map that mirrors re-winds every face, so meshes keep facing out.
+- **Mirror never makes a negative scale.** Object mirror conjugates the world reflection into
+  each object's local space (W⁻¹·M·W) and bakes it into the mesh; the transform is untouched. This is
+  exact even for rotated, non-uniformly scaled objects, where a reflection can't be expressed as
+  position/rotation/positive scale. Component mirror moves the selected vertices, folds faces it
+  bends (as any vertex move does), and flips shells that were wholly selected.
+- **Apply is "rotation & scale", keeping the position**, which is almost always what's wanted
+  (the object stays where it is with a clean transform). Set Origin offers centre, base (centre of
+  the bottom, like imported objects) and world origin, rather than a 3D cursor we don't have.
+- **Join goes into the active object** (the last one clicked), mapping the others into its space.
+  **Separate** takes the selected faces (or faces fully covered by a vertex/edge selection) into a
+  new object per source, with the same transform, and keeps editing with the new object included.
+- **Grow/shrink follow Blender:** grow adds what shares a vertex; shrink removes what touches
+  anything unselected (so faces on an open border stay). **Edge loops** go straight on through
+  4-edge vertices and stop at any other kind (cube corners stop at once; a loop cut makes rings).
+- Ctrl+= / Ctrl+− are taken from the browser's page zoom for grow/shrink (they repeat when held).
+
+### Mistakes
+- Two unit-test expectations were wrong rather than the code: the cylinder primitive has no soft
+  edges (it's faceted by default), and shrinking a 3×3 block of faces that touches the grid's edge
+  rightly keeps the faces that only border the mesh's own boundary.
+- **Inset now defaults to Hole** (SketchUp's Offset): the inset face fills a hole in the outer face,
+  with no corner-to-corner edges, and the outer face stays one face for painting and UVs. Ring
+  stays as the alternative, because loop cuts and edge loops only run across quads, and a face
+  with a hole has to be triangulated on export (the diagonals reappear there).

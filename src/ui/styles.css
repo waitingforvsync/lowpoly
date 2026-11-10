@@ -522,3 +522,9 @@ body,
   color: var(--text-dim);
   border-top: 1px solid var(--border);
 }
+
+.row-label {
+  align-self: center;
+  min-width: 44px;
+  color: var(--text-dim);
+}

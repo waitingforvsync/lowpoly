@@ -177,7 +177,7 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
 - Click to select. Shift adds, Ctrl toggles, Esc clears.
 - **Box select:** dragging left→right selects what's fully inside (window). Dragging
   right→left selects anything touched (crossing).
-- Commands: select all, none, invert, linked, grow/shrink, edge loop (on quads).
+- Commands: select all, none, invert, linked (Ctrl+L), grow/shrink (Ctrl+= / Ctrl+−), edge loop (Alt+click in edge mode; through 4-edge vertices).
 - Hover highlights the item a click would pick. Without X-ray, selection ignores occluded elements.
 
 ## Snapping
@@ -220,8 +220,9 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
 
 **Transform**
 - Move, Rotate, Scale
-- Mirror
-- Snap selection to grid
+- Mirror X / Y / Z across the selection's centre (objects: baked into the mesh; components: the
+  selected vertices, flipping shells that were wholly selected)
+- Snap selection to grid (object positions, or vertices)
 
 **Model** (component modes)
 - **Push/Pull:** extrude a face along its normal. Hole walls are created too. SketchUp behaviour:
@@ -229,7 +230,8 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
   line up with the face beside them merge into it; pushing a face flat against an opposite face
   cuts a tunnel; a free-standing face becomes a closed solid.
 - Extrude vertices, edges or faces along a free direction (the Extrude tool drives the move gizmo).
-- **Inset** faces, as a ring of quads (holes are inset as well) or as a hole (SketchUp's Offset).
+- **Inset** faces, as a hole (SketchUp's Offset; the default) or as a ring of quads (holes are inset as
+  well; keeps quad topology for loop cuts and edge loops).
 - **Split edge** (subdivide into n pieces), **Connect** (vertices: split a face; edges: cut in half
   and connect the midpoints).
 - **Loop cut** (quad strips).
@@ -244,9 +246,9 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
 **Object**
 - Rename
 - Hide / lock
-- Join objects
-- Separate selection into a new object
-- Apply transform, set origin
+- Join objects (Ctrl+J, into the active one)
+- Separate the selected faces into a new object
+- Apply rotation & scale (position kept); set origin to centre / base / world origin
 
 **UV / Material**
 - Assign material
@@ -292,6 +294,8 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
    rotate, scale, extrude, push/pull, inset, line, rectangle, loop cut), line and rectangle tools, loop cut.
 8. **M7 I/O and polish:** OBJ import/export, GLB export, autosave, UV editor panel, deploy (GitHub
    Pages on every push to `main`).
+9. **M8 Object operations and selection commands:** join, separate, apply rotation & scale, set
+   origin, mirror, snap to grid; select linked, grow/shrink, edge loop.
 
 ## Keyboard shortcuts
 
@@ -322,6 +326,9 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
 | `Shift` + click / drag | Add to selection |
 | `Ctrl` + click / drag | Toggle in selection (click) / remove from selection (drag) |
 | `Alt` + click | Select edge loop (edge mode) |
+| `Ctrl+L` | Select linked (component modes) |
+| `Ctrl+=` / `Ctrl+−` (or numpad `+` / `−`) | Grow / shrink the selection |
+| `Ctrl+J` | Join the selected objects into the active one |
 | `F` | Frame selection |
 | `Numpad 7 / 1 / 3 / 0` | Top / Front / Right / Iso view |
 | `Numpad 5` | Toggle perspective / ortho |

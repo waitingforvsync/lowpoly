@@ -42,8 +42,11 @@ export const cursorWorld = signal<Vec3Tuple | null>(null);
  */
 export const textureLock = signal(true);
 
-/** Inset as a ring of quads, or as a hole filled by the inset face (SketchUp's Offset). */
-export const insetMode = signal<'ring' | 'hole'>('ring');
+/**
+ * Inset as a hole in the outer face, filled by the inset face (SketchUp's Offset; the default), or
+ * as a ring of quads (keeps quad topology for loop cuts and edge loops).
+ */
+export const insetMode = signal<'ring' | 'hole'>('hole');
 
 /** The value of the operation in progress (e.g. a push/pull distance), shown in the status bar. */
 export const measurement = signal<string | null>(null);

@@ -59,6 +59,16 @@ import {
   setEdgesHard,
 } from '../editor/componentActions';
 import { isComponentMode } from '../editor/modes';
+import {
+  applyRotationScale,
+  joinObjects,
+  mirrorSelection,
+  type OriginTarget,
+  separateSelection,
+  setOrigin,
+  snapSelectionToGrid,
+} from '../editor/objectActions';
+import { growSelection, selectLinked, shrinkSelection } from '../editor/selectActions';
 import { toolById } from '../editor/tools';
 import { NumberField, TextField, Vec3Field } from './fields';
 import { useDoc } from './useDoc';
@@ -147,6 +157,7 @@ function ObjectProps({ obj }: { obj: SceneObject }) {
         </dd>
       </dl>
       <NormalsButtons />
+      <ObjectOps count={1} />
       <UVSection enabled />
       {obj.source && <PrimitiveProps id={obj.id} source={obj.source} />}
     </>
@@ -204,7 +215,89 @@ function MultiProps({ ids }: { ids: number[] }) {
         </dd>
       </dl>
       <NormalsButtons />
+      <ObjectOps count={ids.length} />
       <UVSection enabled />
+    </>
+  );
+}
+
+const ORIGINS: { target: OriginTarget; label: string; title: string }[] = [
+  { target: 'centre', label: 'Centre', title: 'Move the origin to the centre of the bounding box (the geometry stays put)' },
+  { target: 'base', label: 'Base', title: 'Move the origin to the centre of the bottom of the bounding box' },
+  { target: 'world', label: 'World', title: 'Move the origin to the world origin' },
+];
+
+function MirrorButtons({ disabled }: { disabled?: boolean }) {
+  return (
+    <>
+      {([0, 1, 2] as const).map((axis) => (
+        <OpButton key={axis} title={`Mirror across the ${'XYZ'[axis]} axis, through the selection's centre`} disabled={disabled} onClick={() => mirrorSelection(axis)}>
+          Mirror {'XYZ'[axis]}
+        </OpButton>
+      ))}
+    </>
+  );
+}
+
+/** Object-mode operations (M8). */
+function ObjectOps({ count }: { count: number }) {
+  return (
+    <>
+      <h3 class="subhead">Object</h3>
+      <div class="button-row">
+        <OpButton title="Merge the selected objects into the active one (Ctrl+J)" disabled={count < 2} onClick={joinObjects}>
+          Join
+        </OpButton>
+        <OpButton title="Bake rotation and scale into the mesh; the object keeps its position" onClick={applyRotationScale}>
+          Apply Rot &amp; Scale
+        </OpButton>
+        <OpButton title="Snap the objects' positions to the grid" onClick={snapSelectionToGrid}>
+          Snap to Grid
+        </OpButton>
+      </div>
+      <div class="button-row">
+        <span class="row-label">Origin</span>
+        {ORIGINS.map((o) => (
+          <OpButton key={o.target} title={o.title} onClick={() => setOrigin(o.target)}>
+            {o.label}
+          </OpButton>
+        ))}
+      </div>
+      <div class="button-row">
+        <MirrorButtons />
+      </div>
+    </>
+  );
+}
+
+/** Component-mode selection commands and arrangement (M8). */
+function SelectionOps({ mode, count }: { mode: ComponentMode; count: number }) {
+  return (
+    <>
+      <h3 class="subhead">Selection</h3>
+      <div class="button-row">
+        <OpButton title="Select everything connected (Ctrl+L)" disabled={!count} onClick={selectLinked}>
+          Linked
+        </OpButton>
+        <OpButton title="Add everything sharing a vertex with the selection (Ctrl+=)" disabled={!count} onClick={growSelection}>
+          Grow
+        </OpButton>
+        <OpButton title="Remove what touches anything unselected (Ctrl+−)" disabled={!count} onClick={shrinkSelection}>
+          Shrink
+        </OpButton>
+        {mode === 'edge' && <span class="dim small">Alt+click: edge loop</span>}
+      </div>
+      <div class="button-row">
+        <OpButton title="Move the selected faces into a new object" disabled={!count} onClick={separateSelection}>
+          Separate
+        </OpButton>
+        <OpButton title="Snap the selected vertices to the grid" disabled={!count} onClick={snapSelectionToGrid}>
+          Snap to Grid
+        </OpButton>
+      </div>
+      <div class="button-row">
+        <MirrorButtons disabled={!count} />
+      </div>
     </>
   );
 }
@@ -318,6 +411,7 @@ function ComponentProps({ mode }: { mode: ComponentMode }) {
         </button>
       </div>
       <ModelOps mode={mode} count={count} />
+      <SelectionOps mode={mode} count={count} />
     </>
   );
 }
@@ -534,19 +628,19 @@ function InsetModeButtons() {
     <span class="segmented">
       <button
         type="button"
-        class={insetMode.value === 'ring' ? 'tb-button active' : 'tb-button'}
-        title="A ring of quads joins the inset face to its old outline"
-        onClick={() => (insetMode.value = 'ring')}
-      >
-        Ring
-      </button>
-      <button
-        type="button"
         class={insetMode.value === 'hole' ? 'tb-button active' : 'tb-button'}
-        title="The old face becomes a frame, with the inset face filling its hole (SketchUp's Offset)"
+        title="The old face becomes a frame, with the inset face filling its hole (SketchUp's Offset). No extra edges"
         onClick={() => (insetMode.value = 'hole')}
       >
         Hole
+      </button>
+      <button
+        type="button"
+        class={insetMode.value === 'ring' ? 'tb-button active' : 'tb-button'}
+        title="A ring of quads joins the inset face to its old outline: more faces, but loop cuts and edge loops can run across it"
+        onClick={() => (insetMode.value = 'ring')}
+      >
+        Ring
       </button>
     </span>
   );
