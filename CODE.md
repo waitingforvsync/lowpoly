@@ -255,6 +255,9 @@ The format is `serializeDocument` JSON, saved as `*.lowpoly.json`.
 
 ## Tests and tooling
 - `npm test` (Vitest, Node). Tests sit next to their sources as `*.test.ts`. **Also run `npm run typecheck`**: Vitest does not type-check.
+- Deployment: `.github/workflows/deploy.yml` runs `npm ci`, `npm test` and `npm run build` on every
+  push to `main` and publishes `dist/` to GitHub Pages (relative `base`, so the `/lowpoly/` sub-path
+  needs no config). A failing test stops the deploy.
 - `npm run dev`, or F5 in VS Code (`.vscode/launch.json`, using `serverReadyAction`).
 - Browser checks: drive the dev server with Playwright on the real GPU. App modules can be imported in
   the page (`await import('/src/editor/editor.ts')`) to inspect live state.
