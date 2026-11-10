@@ -323,3 +323,47 @@ way (with what they taught). Newest entries at the bottom of each milestone. See
 - The loop-cut hover distance first went in the measurement box, under the label "Cuts", which read
   as "0.05 cuts". It moved to the pointer tooltip; the box is for what you can type.
 - Heredoc patches with quotes failed again; the file tool remains the reliable way to write patch scripts.
+
+---
+
+## M7 — I/O and polish
+
+### Decisions
+- **Z-up stays inside.** OBJ and glTF are Y-up; `toYUp` / `fromYUp` convert at the file boundary
+  only (a −90° rotation about X, so nothing is mirrored).
+- **OBJ export bakes world space**, since OBJ has no object transforms. A mirroring transform
+  re-winds faces so they still face out. Faces stay polygons (OBJ allows them) except faces with
+  holes, which OBJ can't express and which are triangulated. **GLB keeps one node per object** with
+  its transform conjugated into Y-up (C·M·C⁻¹), so pivots survive a trip into other tools.
+- **UVs are exported in texture repeats**, divided by the material's tile size. Our UVs are world
+  units, but other tools expect 0–1 per image; with repeat wrapping the texture then looks the same.
+  glTF also flips V (top-left image origin). Import keeps the file's UVs with a tile size of 1.
+- **An OBJ export is one ZIP** (OBJ + MTL + images) rather than several downloads. A stored (no
+  compression) ZIP writer is ~100 lines with no dependency, and images are already compressed.
+- **Import repairs instead of refusing.** Our meshes must be planar and manifold, and real OBJ files
+  often aren't. Degenerate faces are skipped, non-planar faces triangulated, and a face that would
+  share an edge with two others, or wind against its neighbour, gets its own copy of its vertices.
+  What was done is reported in the status bar. Vertex normals in the file decide soft edges (same
+  normal on both sides at both ends), so smooth-shaded models stay smooth.
+- **Browsers can't read the files next to an .obj**, so the .mtl and images are picked (or dropped)
+  together with it and matched by file name. Missing ones leave materials plain, with a note.
+- **GLB materials** are matte PBR (metallic 0, roughness 1) for the flat low-poly look, with the
+  colour converted from sRGB to linear as glTF requires. Non-PNG/JPEG textures are converted to PNG
+  via a canvas at export.
+- **Autosave uses IndexedDB, not localStorage** (the plan said localStorage). Documents embed their
+  textures, and localStorage's ~5 MB limit is easy to exceed. One slot holds the latest document,
+  written 0.8 s after changes. It is restored at startup, before autosaving begins, so the default
+  scene never overwrites it. A restored document counts as unmodified (nothing to compare with).
+- **UV editor:** UVs are shown in texture repeats, which is how the image tiles. In face mode,
+  dragging inside a selected face moves all selected faces' UVs, snapped to the grid step in
+  repeats, as one undo step with a live preview like the face tools. Other modes show faces for
+  reference only. Scale and rotate stay in the UV section's fields rather than adding handles.
+- **Deployment:** a GitHub Actions workflow tests, builds and publishes to GitHub Pages on every
+  push to `main`. The relative Vite `base` (from M0) made the `/lowpoly/` sub-path work unchanged.
+
+### Mistakes
+- **A stopped dev server wasn't stopped.** Stopping the background `npx vite` task killed `npx`
+  but left its `vite` child process listening on the port. The next server failed to start
+  ("port in use"), while the tests quietly ran against the old process. It still served current
+  source, so the results held, but I only noticed because of the failure notice. *Lesson: check the
+  port is free after stopping a server, and kill the actual `node … vite.js` process.*

@@ -183,7 +183,7 @@ face's UVs are degenerate (for new points drawn on a face).
 | File | Contents |
 |---|---|
 | `editor.ts` | `Editor` singleton `editor`: `doc`, `docVersion` / `historyVersion` / `fileName` signals, `history`, `ctx` (a `CommandContext`), `execute(cmd, select?)`, `undo`, `redo`, `notifyPreview`, `replaceDocument`, `isDirty`. After every change it prunes stale selections and, in dev builds, validates every mesh |
-| `state.ts` | UI signals: `selectionMode`, `activeTool`, `snapEnabled`, `snapInvertHeld`, `gridStep`, `rotationStep`, `projection`, `transformSpace`, `xray`, `cursorWorld`, `statusMessage` (+ `showStatus`), `textureLock`, `insetMode`, `measurement` (value of the drag in progress, shown in the status bar), `activeMaterial` (what Paint applies), `showTextures` |
+| `state.ts` | UI signals: `selectionMode`, `activeTool`, `snapEnabled`, `snapInvertHeld`, `gridStep`, `rotationStep`, `projection`, `transformSpace`, `xray`, `cursorWorld`, `statusMessage` (+ `showStatus`), `textureLock`, `insetMode`, `measurement` (value of the drag in progress, shown in the status bar), `activeMaterial` (what Paint applies), `showTextures`, `uvPanelOpen` |
 | `materialActions.ts` | `loadMaterialTexture(id)` (file picker), `setMaterialTextureFromFile(id, blob)`, `clearMaterialTexture`, `setMaterialTextureSize`, `paintMaterial()` (the active material, or Default if it was deleted), `paintFaces(objectId, faceIds, scope)`, `sampleMaterial` |
 | `selection.ts` | Object selection (`selectedObjects`, `activeObject`, `setSelection`, `selectOnly`, `addToSelection`, `toggleSelection`, `clearSelection`). Component selection: per mode, per object `componentSelection[mode]`, `editObjects`, `applyComponents(mode, refs, op)`, `setComponents`, `clearComponents`, `componentCount`. Undo snapshots: `snapshotSelection` / `restoreSelection`. Plus `pruneSelection` |
 | `components.ts` | Resolving element keys against a mesh (`vertexOf`, `edgeOf`, `faceOf`, `keyOfEdge`, `elementExists`, `verticesOf`, `edgesOf`, `facesOf`, `allKeys`) and `convertSelection` between modes |
@@ -225,10 +225,13 @@ face's UVs are degenerate (for new points drawn on a face).
 | `ComponentOverlay.ts` | Vertex dots, thick selected/hover edges (`LineSegments2`), translucent face fills. Rebuilt on change |
 | `Gizmo.ts` | `TransformControls` on a hidden pivot. Targets are objects or components (`GizmoTargets`). It previews live, and commits `SetTransforms` or `commitVertexMoves` on release. With the Extrude tool the translate gizmo extrudes: each frame re-runs `extrudeMesh` with the local offset and selects the copies; release commits one `ReplaceMeshCommand` per object. Each drag keeps its world-space `delta`; afterwards a typed value replaces it: a distance along the direction moved (or x,y,z), an angle about the same axis through the pivot, or a scale factor on the axes that were scaled (or x,y,z) |
 | `transformMath.ts` | `applyTransform`, `transformToMatrix`, `matrixToTransform` (rounds away float noise) |
+| `UVView.ts` | The UV editor's 2D canvas: faces' UVs in texture repeats over the tiled texture (of the first shown face's material), repeat grid, wheel zoom at the cursor, middle/right-drag pan, `fit()`. In face mode it shows the selected faces, and dragging inside one moves all their UVs (live preview on mesh copies, grid-snapped in repeats, Esc cancels, one `Move UVs` step); otherwise the faces of the edited or selected objects, for reference |
 | `grid.ts`, `AxesIndicator.ts`, `colors.ts` | Ground grid (drawn first without depth writes), corner axes gizmo, palette |
 
 ## `ui/` — panels (Preact)
-`App` lays out `Toolbar`, `Outliner` and `Properties` (sidebar), `ViewportView` and `StatusBar`.
+`App` lays out `Toolbar`, `Outliner` and `Properties` (sidebar), `ViewportView`, `StatusBar`, and the
+`UVPanel` (a third grid column, toggled by the toolbar's UV button / `uvPanelOpen`). Dropping files on
+the viewport imports OBJ.
 `fields.tsx` has `TextField`, `NumberField` and `Vec3Field` (commit on Enter or blur, revert on Escape),
 plus colour hex helpers. `icons.tsx` has small SVG icons. `Properties.tsx` shows a **Model** section per
 component mode (numeric Push/Pull, Extrude, Inset, Subdivide; Connect, Make Face/Hole, Triangulate,
@@ -249,9 +252,44 @@ children whose props haven't changed. Every component that displays document dat
 down so documents stay small), `loadImage`.
 
 ## `io/file.ts`
-`newDocument`, `saveDocument(saveAs?)`, `openDocument`. Uses the File System Access API when
-available (Save writes back to the same file), otherwise falls back to a download and a file input.
-The format is `serializeDocument` JSON, saved as `*.lowpoly.json`.
+`newDocument`, `saveDocument(saveAs?)`, `openDocument`, `downloadBlob(name, data, type)`. Uses the File
+System Access API when available (Save writes back to the same file), otherwise falls back to a
+download and a file input. The format is `serializeDocument` JSON, saved as `*.lowpoly.json`.
+
+## `io/obj.ts` — Wavefront OBJ (pure, tested)
+- `toYUp` / `fromYUp`: the Z-up ↔ Y-up conversion used by every exchange format.
+- `exportOBJ(doc, objects, baseName, triangulate?)` → `ExportFile[]` (`.obj`, `.mtl`, texture images).
+  World-space positions (`worldMesh` bakes the transform, re-winding mirrored objects), per-corner
+  normals (flat, or smoothed across soft edges via `cornerNormal`), UVs in texture repeats (÷ tile
+  size). Faces stay polygons except those with holes. Names are made safe and unique (`safeName`).
+- `parseOBJ(text)` → `{objects: {name, data, origin}[], slots, mtllibs, warnings}`. `o` (or `g` when
+  a file has no `o`) starts an object; `usemtl` names become material slots (slot 0 = none).
+  Repairs to fit the editor's rules: degenerate faces are skipped, non-planar ones triangulated, and
+  a face that would make an edge non-manifold or wind against its neighbour gets its own vertices.
+  Edges whose two faces give the same vertex normals at both ends become soft. Origin = centre of
+  the base. `parseMTL(text)` → `{name, color (Kd), texture (map_Kd)}[]`.
+- Helpers shared with GLB: `tileSize(material)`, `dataURLBytes`, `faceNormalMap`, `faceCornerNormals`.
+
+## `io/gltf.ts` — GLB export (pure, tested)
+`exportGLB(doc, objects, images?)` → bytes. One node per object keeping its transform (C·M·C⁻¹ with
+C = −90° about X); triangles from `buildMeshBuffers` (one primitive per material), Y-up positions and
+normals, UVs in repeats with V flipped (glTF's image origin is top-left). Materials: no metal, full
+roughness, linear base colour, or a base-colour texture with a repeating sampler. `documentImages`
+gives PNG/JPEG bytes; other formats must be converted by the caller (`exchange.ts` does it via canvas).
+
+## `io/zip.ts`
+`zip(entries)`: a stored (uncompressed) ZIP, so an OBJ export downloads as one file. `crc32`.
+
+## `io/exchange.ts` — File menu actions (browser)
+`exportOBJFile()` (zip of OBJ + MTL + textures), `exportGLBFile()`, `importOBJFiles(files?)`: pick or
+drop the `.obj` with its `.mtl` and images; the MTL is found from `mtllib` (or any `.mtl` chosen),
+textures by file name. Imports as one undo step (`Import OBJ`: textures, materials, objects). Export
+uses the selected objects, or everything visible.
+
+## `io/autosave.ts`
+`restoreAutosave()` at startup, then `installAutosave()`: 0.8 s after any history change (or a file
+name change), the serialized document goes to IndexedDB (`lowpoly` / `autosave` / `current`).
+Unchanged documents aren't rewritten. Failures are reported once.
 
 ## Tests and tooling
 - `npm test` (Vitest, Node). Tests sit next to their sources as `*.test.ts`. **Also run `npm run typecheck`**: Vitest does not type-check.

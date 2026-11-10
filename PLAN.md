@@ -136,7 +136,9 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
   every face of the object with that material. Clicking a selected face paints the whole selection.
 - **Texture size:** each material has a tile size, the world size of one repeat of its image, since
   UVs are in world units.
-- **UV editor panel:** a 2D view of the selected faces' UVs. Comes later (M7).
+- **UV editor panel:** a 2D view of UVs in texture repeats over the tiled texture. Face mode shows
+  the selected faces, which can be dragged to move their UVs; other modes show the edited or selected
+  objects' faces for reference. Scale and rotation use the UV section's fields.
 
 ## Undo / redo
 
@@ -198,9 +200,9 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
 
 **File**
 - New, Open, Save (JSON with embedded textures)
-- Autosave to localStorage
-- Import OBJ
-- Export OBJ+MTL and GLB, both with textures
+- Autosave to IndexedDB (restored on startup)
+- Import OBJ (+MTL and textures; by picking or dropping the files)
+- Export OBJ+MTL (zipped with textures) and GLB, of the selection or everything visible
 
 **Edit**
 - Undo, Redo
@@ -288,7 +290,8 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
    planar, transform), textured rendering, texture display toggle.
 7. **M6 SketchUp-style feel:** inference snapping, axis lock, measurement box (typed values for move,
    rotate, scale, extrude, push/pull, inset, line, rectangle, loop cut), line and rectangle tools, loop cut.
-8. **M7 I/O and polish:** OBJ import/export, GLB export, autosave, UV editor panel, deploy.
+8. **M7 I/O and polish:** OBJ import/export, GLB export, autosave, UV editor panel, deploy (GitHub
+   Pages on every push to `main`).
 
 ## Keyboard shortcuts
 

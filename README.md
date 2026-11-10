@@ -16,4 +16,7 @@ npm run typecheck
 npm run build      # static site in dist/ (relative base, host anywhere)
 ```
 
+Your work is autosaved in the browser and restored when you come back. Import OBJ (choose or
+drop the .obj with its .mtl and images); export GLB or OBJ (+MTL and textures, zipped).
+
 Navigation: middle-drag orbits, Shift+middle or right-drag pans, the wheel zooms to the cursor.

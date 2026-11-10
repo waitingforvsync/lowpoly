@@ -9,6 +9,7 @@ import {
   snapEnabled,
   textureLock,
   transformSpace,
+  uvPanelOpen,
   xray,
   type SelectionMode,
 } from '../editor/state';
@@ -19,6 +20,7 @@ import { createPrimitive } from '../editor/actions';
 import { editor } from '../editor/editor';
 import { PRIMITIVE_TYPES, PRIMITIVES, type PrimitiveType } from '../core/primitives';
 import { newDocument, openDocument, saveDocument } from '../io/file';
+import { exportGLBFile, exportOBJFile, importOBJFiles } from '../io/exchange';
 import type { StandardView } from '../render/Viewport';
 
 const MODES: { id: SelectionMode; label: string; key: string }[] = [
@@ -52,6 +54,26 @@ export function Toolbar() {
         <Button title="Save (Ctrl+S). Save As: Ctrl+Shift+S" onClick={() => void saveDocument()}>
           Save
         </Button>
+        <Button title="Import OBJ… Choose the .obj with its .mtl and texture images" onClick={() => void importOBJFiles()}>
+          Import
+        </Button>
+        <select
+          class="tb-select"
+          title="Export the selected objects (or everything visible)"
+          value=""
+          onChange={(e) => {
+            const kind = e.currentTarget.value;
+            e.currentTarget.value = '';
+            if (kind === 'obj') exportOBJFile();
+            else if (kind === 'glb') void exportGLBFile();
+          }}
+        >
+          <option value="" disabled hidden>
+            Export…
+          </option>
+          <option value="glb">GLB (glTF binary)</option>
+          <option value="obj">OBJ + MTL (zip)</option>
+        </select>
       </Group>
 
       <Group label="History">
@@ -153,6 +175,9 @@ export function Toolbar() {
         </Button>
         <Button title="Show image textures (off: plain material colours)" active={showTextures.value} onClick={() => (showTextures.value = !showTextures.value)}>
           Textures
+        </Button>
+        <Button title="UV editor: see and move the selected faces' UVs over the texture" active={uvPanelOpen.value} onClick={() => (uvPanelOpen.value = !uvPanelOpen.value)}>
+          UV
         </Button>
       </Group>
 

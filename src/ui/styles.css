@@ -463,3 +463,62 @@ body,
   border-radius: 2px;
   white-space: nowrap;
 }
+
+/* UV editor panel, docked right of the viewport. */
+.app.with-uv {
+  grid-template-columns: var(--sidebar-width) 1fr var(--uv-width, 360px);
+  grid-template-areas:
+    'toolbar toolbar toolbar'
+    'sidebar viewport uv'
+    'status status status';
+}
+
+.uv-panel {
+  grid-area: uv;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+}
+
+.uv-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.uv-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.uv-btn {
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 1px 8px;
+}
+
+.uv-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.uv-canvas canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.uv-help {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+}

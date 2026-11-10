@@ -94,7 +94,12 @@ export async function openDocument(): Promise<void> {
 }
 
 function download(name: string, text: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  downloadBlob(name, text, 'application/json');
+}
+
+/** Save data as a download. */
+export function downloadBlob(name: string, data: string | Uint8Array, type: string): void {
+  const url = URL.createObjectURL(new Blob([data as BlobPart], { type }));
   const a = document.createElement('a');
   a.href = url;
   a.download = name;

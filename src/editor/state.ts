@@ -53,3 +53,6 @@ export const activeMaterial = signal(0);
 
 /** Show image textures in the viewport (off: plain material colours). */
 export const showTextures = signal(true);
+
+/** The UV editor panel is open. */
+export const uvPanelOpen = signal(false);
