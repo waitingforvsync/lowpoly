@@ -92,7 +92,7 @@ The mesh does **not** check planarity on `addFace`. Callers that build faces kee
 ### `halfedge/euler.ts` — topological operators
 They rebuild affected faces through `addFace`/`removeFace` and roll back on failure.
 - `splitEdge(mesh, edge, t?, id?) → Vertex`: inserts a vertex, interpolates UVs per face, and keeps the edge's hardness.
-- `splitFace(mesh, face, va, vb, newId?) → [Face, Face]`: connects two outer-loop vertices; holes go to whichever side contains them.
+- `splitFace(mesh, face, va, vb, newId?, path?) → [Face, Face]`: connects two outer-loop vertices, directly or through `path` (new points inside the face, from `va` to `vb`, whose UVs continue the face's mapping); holes go to whichever side contains them. Without a path the vertices must not be adjacent.
 - `joinFaces(mesh, edge) → Face`: dissolves the edge between two coplanar faces that share exactly one edge.
 - `addHole(mesh, face, corners, {fill?, fillId?})`, `fillHole(mesh, face, hole, id?)`, `removeHole(mesh, face, hole)`.
 
@@ -113,6 +113,8 @@ They rebuild affected faces through `addFace`/`removeFace` and roll back on fail
 | `connect.ts` | `connectVertices(mesh, verts)`, `subdivideEdges(mesh, edges, cuts)` | Connect splits faces between consecutive selected corners. Both edit in place and return new edge keys |
 | `faces.ts` | `makeFace(mesh, {edges} \| {verts})`, `makeHole(mesh, inner)`, `triangulateFaces`, `faceContains` | Make face: from one edge cycle, or vertices (cycle order if joined by edges, else by angle); winding follows free half-edges, else faces away from the mesh centre. Make hole: a coplanar inner face becomes a filled hole of the face around it |
 | `paint.ts` | `paintTargets(faces, clicked, 'face' \| 'connected' \| 'same')` | Which faces a Paint click affects: the face, its edge-connected faces of the same material, or every face with that material |
+| `draw.ts` | `locateOnFace(face, p)`, `drawPathOnFace(mesh, faceId, pts)`, `drawLoopOnFace(mesh, faceId, pts)` → `{faces, inner}`, `faceUnder(mesh, pts, closed)`, `loopMeshData(pts, up)`, `cleanPoints`, `isSimple2D` | Line/Rectangle results. A closed shape inside a face becomes a filled hole; one touching the outer edge at ≥ 2 points splits the face along each stretch through its inside; a path from outer edge to outer edge splits it (edge points split the edge first, also in the neighbour). Refuses shapes that leave the face, cross themselves or its edges, touch at one point, touch or surround a hole. Edits in place |
+| `loopcut.ts` | `edgeRing(edge)` → `{edges: {from, to}[], faces, closed}`, `loopCut(mesh, edge, ts)`, `evenCuts(n)`, `loopCutSegments(ring, ts)` | The ring runs through quads to the opposite edge both ways, until a non-quad, a boundary or back to the start. Parameters are measured from each ring edge's `from` end, so one t cuts straight across. Edits in place; returns the new edge keys |
 | `normals.ts` | `shells`, `shellOrientation`, `flipNormals(mesh, ids?)`, `recalculateNormals(mesh, ids?)` | Orientation is per **shell** (neighbours always wind consistently), so these flip whole edge-connected shells. Recalc uses the signed volume about the shell's centre |
 
 ### `triangulate.ts`
@@ -138,7 +140,8 @@ offsets them. `UVParams = {scale, rotation (deg), offset}`: uv → R·uv / scale
 `faceUVMap(points, uvs)`: least-squares affine map of a planar face's UVs (null if degenerate); used for
 inset corners and holes. `wallUVs(a, b, uvA, uvB, offset)`: UVs for the far corners of a wall grown from
 edge a→b, continuing the neighbour's texture at the same density, unmirrored. `projectUVs(points)`:
-the world-space fallback.
+the world-space fallback. `faceUVFunction(points, uvs)`: `faceUVMap`, or the planar fallback when the
+face's UVs are degenerate (for new points drawn on a face).
 
 ### `document.ts`
 - `SceneObject`:
@@ -169,7 +172,7 @@ the world-space fallback.
 - `History<S>`:
   - `execute(cmd, select?)`, `undo`, `redo`, `clear`. The optional `select` callback runs right after
     the command applies, to set the selection it produces; redo restores that selection;
-  - `markSaved`, `isDirty`, `undoLabel`, `redoLabel`.
+  - `markSaved`, `isDirty`, `undoLabel`, `redoLabel`, `lastCommand` (what the next undo reverts).
   - It records the selection snapshot (type `S`) before and after each command, and restores it on undo/redo.
 - Helpers: `FnCommand(label, do, undo)` and `CompositeCommand(label, cmds)`, which reverts in reverse order.
 
@@ -190,7 +193,9 @@ the world-space fallback.
 | `componentActions.ts` | Component operations: `deleteComponents`, `dissolveComponents`, `mergeComponentsAtCenter`, `mergeComponentsByDistance`, `selectAllComponents`, `invertComponents`, `componentCentroid`, `moveComponentsTo`, **`commitVertexMoves`** (the single path for vertex moves: folds bent faces, then picks `MoveVerts` or `ReplaceMesh`), `setEdgesHard` / `selectedEdgesHard`, `assignMaterialToFaces` / `selectedFacesMaterial`. **`editMeshes(label, entries, edit, selectMode?)`** runs topology edits on a clone of each mesh; `edit` returns the mesh or an `EditOutcome {mesh?, select?}`, and `select` becomes the selection in `selectMode` (redo restores it). Edits that change nothing are not recorded; failures show in the status bar. `selectedEntries(mode)` |
 | `modelActions.ts` | M4 operations on the selection: `pushPullSelection`, `extrudeSelection`, `insetSelection`, `connectSelection` (vertex: split faces; edge: halve edges and connect midpoints), `subdivideSelection`, `makeFaceFromSelection`, `makeHoleSelection`, `flipSelection`, `recalcNormalsSelection`, `triangulateSelection` (the last three act on whole objects in object mode), `projectUVSelection(kind, params)`, `transformUVSelection(params)` (faces in face mode, whole objects in object mode; `faceOrObjectEntries`). `extrudeMesh(mesh, mode, keys, offset)` is shared with the Extrude tool |
 | `tools.ts` | `TOOLS` definitions (id, label, key, hint), `toolById` |
-| `keymap.ts` | `installKeymap()`. Shortcut tables; actions are mode-aware via `byMode`. Tracks Ctrl for snap inversion, and warns on unload when there are unsaved changes |
+| `measure.ts` | The measurement box. `MeasureHandler {label, apply(text), valid?()}`, `measureHandler` / `measureTyped` signals, `offerMeasure`, `withdrawMeasure`, `currentMeasure()` (for display), `measureKey(e)` (keymap routing: digits , ; . - start typing; Backspace / Enter / Esc while typing), `applyMeasure`, `parseNumbers`, `parseOne`. **`offerReplace(label, parse, run)`**: after an operation, a typed value undoes it and runs it again with the value, while it is still the last command; if the rerun executes nothing, the original is redone. Changing tool withdraws the offer (`installMeasure`) |
+| `drawActions.ts` | `drawShape(worldPoints, closed, label, up, prefer?)` → `'drawn' \| 'nothing' \| 'pending' \| 'error'`: on a face of a visible unlocked object, cuts it (`draw.ts`, via `editMeshes`; an open line only once both ends are on the face's edge); a closed shape elsewhere becomes a new "Shape" object (origin at its first point, facing up if flat, else the viewer; added to the edit set in component modes). `loopCutEdge(objectId, edgeKey, {cuts} \| {t, from})` |
+| `keymap.ts` | `installKeymap()`. Shortcut tables; actions are mode-aware via `byMode`. Tracks Ctrl for snap inversion, and warns on unload when there are unsaved changes. Keys go to the measurement box first when it accepts a value |
 | `viewActions.ts` | Bridge to the live viewport: `attachViewport`, `currentViewport`, `setStandardView`, `toggleProjection`, `frameSelection`, `spawnPoint` |
 | `snap.ts` | `snapScalar`, `snapVec3`, `isSnapActive(enabled, invertHeld)` |
 | `transformPoints.ts` | `transformPoint(t, p)` / `inverseTransformPoint` without Three.js |
@@ -209,13 +214,16 @@ the world-space fallback.
 
 | File | Contents |
 |---|---|
-| `Viewport.ts` | Owns the renderer, both cameras (perspective/ortho), OrbitControls, `SceneSync`, `ComponentOverlay`, `Gizmo` and the grid. One effect re-syncs on any document, selection or mode change. Pointer handling: click → pick, drag past 4 px → box select (window or crossing), hover highlight in component modes; with the Push/Pull or Inset tool, a press on a face starts a `FaceDrag` (Esc cancels); with the Paint tool a click paints (Ctrl: connected, Shift: same material, Alt: sample). Also `setStandardView`, `frameObjects`, `framePoints`, `spawnPoint`, `worldToScreen` |
-| `FaceDrag.ts` | `PushPullDrag`, `InsetDrag`, `localFaceHit`. Each pointer move re-runs the op on a fresh copy of the original mesh as a preview (`obj.setMesh`); release restores the original and commits one `ReplaceMeshCommand`. Push/Pull distance = closest approach of the pointer ray to the normal line through the press point; inset amount = pointer travel across the face plane. Both in local space, snapped to the grid step |
+| `Viewport.ts` | Owns the renderer, both cameras (perspective/ortho), OrbitControls, `SceneSync`, `ComponentOverlay`, `Gizmo` and the grid. One effect re-syncs on any document, selection or mode change. Pointer handling: click → pick, drag past 4 px → box select (window or crossing), hover highlight in component modes; with the Push/Pull or Inset tool, a press on a face starts a `FaceDrag` (Esc cancels); with the Paint tool a click paints (Ctrl: connected, Shift: same material, Alt: sample); the Line, Rectangle and Loop Cut tools are `ViewTool`s that get the pointer and keys (capture phase, before shortcuts) through a `ToolHost` (inference, rays, edge picking over every visible object). Also `setStandardView`, `frameObjects`, `framePoints`, `spawnPoint`, `worldToScreen` |
+| `Inference.ts` | `infer(env, {from?, lock?, points?, plane?})` → `Inference {point, kind, label, color, face, objectId, edgeDir?, axis?}`. Priority: endpoint (shape points, then vertices) > midpoint > on edge > on an axis through `from` (within 8 px, grid-snapped distance) > on face (length from `from` snapped) > ground (grid-snapped) or the given plane. A locked direction keeps the point on that line, projecting point inferences onto it. `lineRayParam`, `AXES`, `INFERENCE_COLORS` |
+| `ToolOverlay.ts` | Drawn over the model: thick preview lines (`setLines`, `setPath`), dashed guide (`setGuide`), inference marker (`setMarker`), tooltip DOM element (`setTip`) |
+| `DrawTools.ts` | `ToolHost`, `ViewTool`, **`LineTool`** (click points; auto-commits when a path crosses a face edge to edge, or a loop closes; arrows lock X/Y/Z, ↓ the inferred edge/axis, Shift holds the current one; typed length or x,y,z offset), **`RectangleTool`** (two corners; in the clicked face's plane, X/Y on level planes, otherwise level × up-the-slope; sizes grid-snapped; typed `w,h` during or after), **`LoopCutTool`** (hover preview at the pointer, grid-snapped along the edge; click cuts; typed n replaces it with n even cuts) |
+| `FaceDrag.ts` | `PushPullDrag`, `InsetDrag`, `localFaceHit`. Each pointer move re-runs the op on a fresh copy of the original mesh as a preview (`obj.setMesh`); release restores the original and commits one `ReplaceMeshCommand`. Push/Pull distance = closest approach of the pointer ray to the normal line through the press point; inset amount = pointer travel across the face plane. Both in local space, snapped to the grid step. After release, a typed distance/inset redoes it exactly (`offerReplace`) |
 | `SceneSync.ts` | Mirrors the document into Three.js: one group per object (mesh + hard-edge lines + soft-edge lines). Rebuilds geometry only when `meshRev` changes. Keeps a material per document material; X-ray makes faces translucent. Textures: one decoded image per `TextureAsset`, one `THREE.Texture` per material (repeat = 1 / `textureSize`, sRGB, repeat wrapping); a textured material renders white × texture. Images decode asynchronously and call the redraw callback given to the constructor. `pickables`, `meshOf`, `bounds` |
 | `meshBuffers.ts` | `buildMeshBuffers(mesh)` (pure, tested): non-indexed positions, normals (flat, smoothed across soft edges via `cornerNormal`), UVs, per-material groups, `triFaces` (triangle → face id), hard and soft edge segments |
 | `Picker.ts` | `pickComponent(env, mode, x, y)`, `boxComponents(env, mode, rect, crossing)`, `boxObjects`. Screen-space distance for vertices and edges, raycasting for faces. Occlusion uses jittered rays with a tolerance of a few pixels' world size |
 | `ComponentOverlay.ts` | Vertex dots, thick selected/hover edges (`LineSegments2`), translucent face fills. Rebuilt on change |
-| `Gizmo.ts` | `TransformControls` on a hidden pivot. Targets are objects or components (`GizmoTargets`). It previews live, and commits `SetTransforms` or `commitVertexMoves` on release. With the Extrude tool the translate gizmo extrudes: each frame re-runs `extrudeMesh` with the local offset and selects the copies; release commits one `ReplaceMeshCommand` per object |
+| `Gizmo.ts` | `TransformControls` on a hidden pivot. Targets are objects or components (`GizmoTargets`). It previews live, and commits `SetTransforms` or `commitVertexMoves` on release. With the Extrude tool the translate gizmo extrudes: each frame re-runs `extrudeMesh` with the local offset and selects the copies; release commits one `ReplaceMeshCommand` per object. Each drag keeps its world-space `delta`; afterwards a typed value replaces it: a distance along the direction moved (or x,y,z), an angle about the same axis through the pivot, or a scale factor on the axes that were scaled (or x,y,z) |
 | `transformMath.ts` | `applyTransform`, `transformToMatrix`, `matrixToTransform` (rounds away float noise) |
 | `grid.ts`, `AxesIndicator.ts`, `colors.ts` | Ground grid (drawn first without depth writes), corner axes gizmo, palette |
 
@@ -228,6 +236,9 @@ Flip, Recalc Normals), a **UV** section (scale, rotation, offset; Per Face / Box
 face and object modes, and per-tool options (texture lock, inset mode, paint material). In the Outliner,
 clicking a material makes it the active (paint) material; its texture (Load…/Clear) and tile size
 show below the list.
+
+`StatusBar.tsx`'s measurement box shows the handler's label (Length, Distance, Cuts…) when it
+accepts a value, the typed text while typing, and otherwise the value of the operation in progress.
 
 **Important: `useDoc()`.** The document is mutated in place, and `@preact/signals` skips re-rendering
 children whose props haven't changed. Every component that displays document data must call

@@ -30,9 +30,9 @@ export const TOOLS: readonly ToolDef[] = [
   { id: 'pushpull', label: 'Push/Pull', code: 'KeyP', key: 'P', hint: 'Drag a face along its normal (all selected faces, if it is one of them). Esc cancels.' },
   { id: 'extrude', label: 'Extrude', code: 'KeyE', key: 'E', hint: 'Drag the gizmo to extrude the selected vertices, edges or faces.' },
   { id: 'inset', label: 'Inset', code: 'KeyI', key: 'I', hint: 'Drag across a face to inset it (all selected faces, if it is one of them). Esc cancels.' },
-  { id: 'loopcut', label: 'Loop Cut', code: 'KeyK', key: 'K', hint: 'Hover an edge to preview a loop cut, then click to cut.' },
-  { id: 'line', label: 'Line', code: 'KeyL', key: 'L', hint: 'Click to place points. Closing a loop makes a face.' },
-  { id: 'rectangle', label: 'Rectangle', code: 'KeyR', key: 'R', hint: 'Click two corners to draw a rectangle on the ground or a face.' },
+  { id: 'loopcut', label: 'Loop Cut', code: 'KeyK', key: 'K', hint: 'Hover an edge to preview a cut across its ring of quads; click to cut. Then type a number for that many even cuts.' },
+  { id: 'line', label: 'Line', code: 'KeyL', key: 'L', hint: 'Click to place points. Edge to edge splits a face; a closed loop makes a face. Arrows lock X/Y/Z (↓ the inferred edge), Shift holds a lock. Type a length.' },
+  { id: 'rectangle', label: 'Rectangle', code: 'KeyR', key: 'R', hint: 'Click two corners to draw a rectangle on a face or on the ground. Type width,height to set its size.' },
   { id: 'paint', label: 'Paint', code: 'KeyB', key: 'B', hint: 'Click a face to paint it (a selected face paints the selection). Ctrl: connected faces of that material; Shift: all of its faces on the object. Alt+click samples.' },
 ];
 

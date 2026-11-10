@@ -5,13 +5,18 @@ import { AxesIndicator } from './AxesIndicator';
 import { COLORS } from './colors';
 import { ComponentOverlay } from './ComponentOverlay';
 import { Gizmo, type GizmoTargets } from './Gizmo';
+import { LineTool, LoopCutTool, RectangleTool, type ToolHost, type ViewTool } from './DrawTools';
 import { type FaceDrag, InsetDrag, localFaceHit, PushPullDrag } from './FaceDrag';
+import { infer } from './Inference';
+import { ToolOverlay } from './ToolOverlay';
 import { createGrid } from './grid';
 import { boxComponents, boxObjects, pickComponent, type PickEnv, type Rect } from './Picker';
 import { SceneSync } from './SceneSync';
 import { transformToMatrix } from './transformMath';
 import type { ObjectId } from '../core/document';
 import type { Vec3 } from '../core/math/vec';
+import { measureTyped } from '../editor/measure';
+import type { ToolId } from '../editor/tools';
 import { editor } from '../editor/editor';
 import { paintFaces, sampleMaterial } from '../editor/materialActions';
 import { isComponentMode } from '../editor/modes';
@@ -106,6 +111,10 @@ export class Viewport {
   private hover: ComponentRef | null = null;
   /** Push/Pull or Inset drag in progress. */
   private faceDrag: FaceDrag | null = null;
+  /** The Line, Rectangle or Loop Cut tool, when active. */
+  private viewTool: ViewTool | null = null;
+  private readonly toolOverlay: ToolOverlay;
+  private readonly toolHost: ToolHost;
 
   constructor(private readonly container: HTMLElement) {
     THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
@@ -159,6 +168,9 @@ export class Viewport {
 
     this.cursorMarker = makeCursorMarker();
     this.scene.add(this.cursorMarker);
+    this.toolOverlay = new ToolOverlay(container);
+    this.scene.add(this.toolOverlay.root);
+    this.toolHost = this.makeToolHost();
 
     canvas.addEventListener('pointermove', this.onPointerMove);
     canvas.addEventListener('pointerleave', this.onPointerLeave);
@@ -167,7 +179,11 @@ export class Viewport {
     canvas.addEventListener('pointercancel', this.onPointerCancel);
     // Capture phase, so Esc cancels a drag before the global shortcuts see it.
     window.addEventListener('keydown', this.onKeyDown, true);
-    this.disposers.push(() => window.removeEventListener('keydown', this.onKeyDown, true));
+    window.addEventListener('keyup', this.onKeyUp, true);
+    this.disposers.push(() => {
+      window.removeEventListener('keydown', this.onKeyDown, true);
+      window.removeEventListener('keyup', this.onKeyUp, true);
+    });
     this.disposers.push(() => {
       canvas.removeEventListener('pointermove', this.onPointerMove);
       canvas.removeEventListener('pointerleave', this.onPointerLeave);
@@ -181,6 +197,8 @@ export class Viewport {
     this.resize();
 
     this.disposers.push(effect(() => this.applyProjection(projection.value)));
+    this.disposers.push(effect(() => this.setViewTool(activeTool.value)));
+    this.disposers.push(() => this.viewTool?.dispose());
     this.disposers.push(
       effect(() => {
         void editor.docVersion.value;
@@ -275,6 +293,7 @@ export class Viewport {
     this.axes.dispose();
     this.sync.dispose();
     this.overlay.dispose();
+    this.toolOverlay.dispose();
     this.scene.traverse((obj) => {
       if (obj instanceof THREE.Line || obj instanceof THREE.Points) {
         obj.geometry.dispose();
@@ -309,6 +328,7 @@ export class Viewport {
     this.perspCamera.updateProjectionMatrix();
     this.updateOrthoFrustum();
     this.overlay.setResolution(this.width, this.height);
+    this.toolOverlay?.setResolution(this.width, this.height);
     this.render(); // render synchronously so the canvas never shows a cleared frame
   }
 
@@ -370,6 +390,51 @@ export class Viewport {
 
   // --- Picking -----------------------------------------------------------------------------------
 
+  // --- Drawing tools -------------------------------------------------------------------------------
+
+  private makeToolHost(): ToolHost {
+    const snap = () => isSnapActive(snapEnabled.peek(), snapInvertHeld.peek());
+    return {
+      infer: (x, y, opts) =>
+        infer({ pick: this.allPickEnv(), ray: this.worldRay(x, y), x, y, snap: snap(), gridStep: gridStep.peek() }, opts),
+      worldRay: (x, y) => this.worldRay(x, y),
+      pickEdge: (x, y) => pickComponent(this.allPickEnv(true), 'edge', x, y),
+      towardCamera: () => {
+        const d = this.camera.getWorldDirection(new THREE.Vector3()).negate();
+        return [d.x, d.y, d.z];
+      },
+      snap,
+      gridStep: () => gridStep.peek(),
+      overlay: this.toolOverlay,
+      requestRender: () => this.requestRender(),
+    };
+  }
+
+  private setViewTool(tool: ToolId): void {
+    this.viewTool?.dispose();
+    this.viewTool =
+      tool === 'line'
+        ? new LineTool(this.toolHost)
+        : tool === 'rectangle'
+          ? new RectangleTool(this.toolHost)
+          : tool === 'loopcut'
+            ? new LoopCutTool(this.toolHost)
+            : null;
+    this.hover = null;
+    this.refreshOverlay();
+    this.updateCursor();
+  }
+
+  /** Every visible object, for inference and the drawing tools (`unlocked`: only editable ones). */
+  private allPickEnv(unlocked = false): PickEnv {
+    const env = this.pickEnv();
+    const targets = editor.doc.objects
+      .filter((o) => o.visible && (!unlocked || !o.locked))
+      .map((obj) => ({ obj, matrix: transformToMatrix(obj.transform), mesh: this.sync.meshOf(obj.id)! }))
+      .filter((t) => t.mesh);
+    return { ...env, targets };
+  }
+
   private pickEnv(): PickEnv {
     const doc = editor.doc;
     const mode = selectionMode.peek();
@@ -419,6 +484,11 @@ export class Viewport {
     this.lastPointer = this.localPoint(e);
     this.updateCursor();
 
+    if (this.viewTool) {
+      this.viewTool.move(this.lastPointer.x, this.lastPointer.y);
+      return;
+    }
+
     if (this.faceDrag) {
       this.faceDrag.move({
         ray: this.worldRay(this.lastPointer.x, this.lastPointer.y),
@@ -440,6 +510,7 @@ export class Viewport {
 
   private readonly onPointerLeave = (): void => {
     this.lastPointer = null;
+    this.toolOverlay.setTip(null);
     this.updateCursor();
     if (!this.press) this.updateHover();
   };
@@ -452,6 +523,10 @@ export class Viewport {
       return;
     }
     const p = this.localPoint(e);
+    if (this.viewTool) {
+      this.viewTool.down(p.x, p.y);
+      return;
+    }
     this.renderer.domElement.setPointerCapture(e.pointerId);
     if (this.paint(p.x, p.y, e)) return;
     if (this.startFaceDrag(p.x, p.y)) return;
@@ -466,12 +541,25 @@ export class Viewport {
   };
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
+    if (isTextEntry(e.target)) return;
+    // Esc while typing a value abandons the value, not the tool.
+    if (e.key === 'Escape' && measureTyped.peek() !== null) return;
+    let used = false;
     if (e.key === 'Escape' && this.faceDrag) {
       this.faceDrag.cancel();
       this.faceDrag = null;
+      used = true;
+    } else if (this.viewTool && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      used = this.viewTool.key(e);
+    }
+    if (used) {
       e.preventDefault();
       e.stopImmediatePropagation();
     }
+  };
+
+  private readonly onKeyUp = (e: KeyboardEvent): void => {
+    this.viewTool?.keyUp(e);
   };
 
   /**
@@ -596,7 +684,8 @@ export class Viewport {
 
   /** Project the pointer onto the ground plane, snap it to the grid and publish it. */
   private updateCursor(): void {
-    const hit = this.lastPointer ? this.groundHit(this.lastPointer.x, this.lastPointer.y) : null;
+    // The drawing tools show their own inference marker.
+    const hit = this.lastPointer && !this.viewTool ? this.groundHit(this.lastPointer.x, this.lastPointer.y) : null;
     if (!hit) {
       cursorWorld.value = null;
       if (this.cursorMarker.visible) {
@@ -618,6 +707,15 @@ export class Viewport {
     this.raycaster.setFromCamera(this.ndc(x, y), this.camera);
     return this.raycaster.ray.intersectPlane(this.groundPlane, new THREE.Vector3());
   }
+}
+
+function isTextEntry(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
 }
 
 function makeCursorMarker(): THREE.Points {

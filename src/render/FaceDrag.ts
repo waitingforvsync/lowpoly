@@ -8,6 +8,7 @@ import { pushPull } from '../core/ops/pushpull';
 import { ReplaceMeshCommand, type MeshState } from '../editor/commands';
 import { editor } from '../editor/editor';
 import { setComponents } from '../editor/selection';
+import { offerReplace, parseOne } from '../editor/measure';
 import { insetMode, measurement, selectionMode, showStatus, textureLock } from '../editor/state';
 import { snapScalar } from '../editor/snap';
 import { transformToMatrix } from './transformMath';
@@ -42,6 +43,8 @@ abstract class PreviewDrag implements FaceDrag {
     protected readonly obj: SceneObject,
     protected readonly faces: FaceId[],
     private readonly label: string,
+    /** The measurement box's name for the value. */
+    private readonly valueName: string,
   ) {
     this.original = obj.mesh;
     this.before = ReplaceMeshCommand.capture(obj);
@@ -73,11 +76,34 @@ abstract class PreviewDrag implements FaceDrag {
   finish(): void {
     const result = this.result;
     this.restore();
-    if (!result) return;
+    if (result) this.commit(result);
+  }
+
+  /** The value typed after a drag: is it acceptable? */
+  protected check(v: number): string | null {
+    return v === 0 ? 'The value must not be zero' : null;
+  }
+
+  private commit(result: { mesh: HalfEdgeMesh; faces: FaceId[] }): void {
     const cmd = new ReplaceMeshCommand(editor.ctx, this.obj.id, this.before, { mesh: toMeshData(result.mesh), source: null }, this.label);
     editor.execute(cmd, () => {
       if (selectionMode.peek() === 'face') setComponents('face', new Map([[this.obj.id, new Set(result.faces)]]));
     });
+    // Typing a value next redoes the operation with it.
+    offerReplace(
+      this.valueName,
+      (text) => {
+        const v = parseOne(text, `a ${this.valueName.toLowerCase()}`);
+        return typeof v === 'number' ? (this.check(v) ?? v) : v;
+      },
+      (v) => {
+        try {
+          this.commit(this.run(fromMeshData(this.before.mesh), v));
+        } catch (e) {
+          showStatus(`${this.label}: ${(e as Error).message}`, 'error');
+        }
+      },
+    );
   }
 
   cancel(): void {
@@ -100,7 +126,7 @@ export class PushPullDrag extends PreviewDrag {
   private readonly normal: THREE.Vector3;
 
   constructor(obj: SceneObject, faces: FaceId[], pressed: FaceId, localHit: THREE.Vector3) {
-    super(obj, faces, 'Push/Pull');
+    super(obj, faces, 'Push/Pull', 'Distance');
     this.origin = localHit.clone();
     this.normal = new THREE.Vector3(...obj.mesh.face(pressed).normal());
   }
@@ -135,7 +161,7 @@ export class InsetDrag extends PreviewDrag {
     pressed: FaceId,
     private readonly localHit: THREE.Vector3,
   ) {
-    super(obj, faces, 'Inset Faces');
+    super(obj, faces, 'Inset Faces', 'Inset');
     const n = new THREE.Vector3(...obj.mesh.face(pressed).normal());
     this.plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, localHit);
   }
@@ -147,6 +173,10 @@ export class InsetDrag extends PreviewDrag {
 
   protected run(mesh: HalfEdgeMesh, amount: number) {
     return insetFaces(mesh, this.faces, amount, insetMode.peek());
+  }
+
+  protected override check(v: number): string | null {
+    return v > 0 ? null : 'The inset must be more than zero';
   }
 
   protected describe(v: number): string {

@@ -136,7 +136,7 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
   every face of the object with that material. Clicking a selected face paints the whole selection.
 - **Texture size:** each material has a tile size, the world size of one repeat of its image, since
   UVs are in world units.
-- **UV editor panel:** a 2D view of the selected faces' UVs. Comes later (M6).
+- **UV editor panel:** a 2D view of the selected faces' UVs. Comes later (M7).
 
 ## Undo / redo
 
@@ -181,7 +181,7 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
 ## Snapping
 
 1. **Grid snap:** step sizes 0.1 / 0.25 / 0.5 / 1, plus a rotation step of 15°. Snap can be toggled, and holding Ctrl flips it temporarily.
-2. **Inference snap:** endpoint, midpoint, on edge, on face, with tooltip labels.
+2. **Inference snap:** endpoint, midpoint, on edge, on axis (from the last point), on face, with tooltip labels. Used by the Line and Rectangle tools.
 3. **Axis lock:** arrow keys lock to X/Y/Z, or Shift locks to the current inference. A coloured guide line shows the locked axis.
 
 ## Gizmo
@@ -286,7 +286,8 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
    normals, triangulate. Texture lock (walls continue the neighbouring face's texture).
 6. **M5 Materials and texturing:** texture import, paint tool, UV projection commands (per face, box,
    planar, transform), textured rendering, texture display toggle.
-7. **M6 SketchUp-style feel:** inference snapping, axis lock, measurement box, line and rectangle tools, loop cut.
+7. **M6 SketchUp-style feel:** inference snapping, axis lock, measurement box (typed values for move,
+   rotate, scale, extrude, push/pull, inset, line, rectangle, loop cut), line and rectangle tools, loop cut.
 8. **M7 I/O and polish:** OBJ import/export, GLB export, autosave, UV editor panel, deploy.
 
 ## Keyboard shortcuts
@@ -324,6 +325,7 @@ interface TextureAsset { id; name; mime; data: string /* base64 */; width; heigh
 | `X` | Toggle X-ray |
 | `W` | Toggle wireframe |
 | `G` | Toggle grid snap (hold `Ctrl` to invert temporarily) |
-| Arrow keys (during a tool) | Lock to X (→) / Y (←) / Z (↑) axis; ↓ locks to the inference direction |
+| Arrow keys (Line tool) | Lock to X (→) / Y (←) / Z (↑) axis; ↓ locks to the inferred edge or axis. Same key again unlocks. Hold `Shift` to lock the current inference |
+| Digits, `,` `.` `-` then `Enter` | Type a value into the measurement box (when its label shows): length, dimensions, distance, angle, scale, inset or cuts. After an operation, replaces it |
 | Middle mouse / Shift+Middle / Wheel | Orbit / Pan / Zoom |
 | `Ctrl+S` / `Ctrl+Shift+S` / `Ctrl+O` | Save / Save As / Open. New is on the toolbar (browsers reserve `Ctrl+N`). |

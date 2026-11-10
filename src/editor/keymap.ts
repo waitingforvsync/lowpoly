@@ -11,6 +11,7 @@ import {
   selectAllComponents,
 } from './componentActions';
 import { editor } from './editor';
+import { installMeasure, measureKey } from './measure';
 import { isComponentMode, setSelectionMode } from './modes';
 import { clearComponents } from './selection';
 import { connectSelection, makeFaceFromSelection } from './modelActions';
@@ -85,6 +86,11 @@ function onKeyDown(e: KeyboardEvent): void {
   if (e.key === 'Control') snapInvertHeld.value = true;
   if (isTextEntry(e.target)) return;
   const ctrl = e.ctrlKey || e.metaKey;
+  // A value for the measurement box: digits go there rather than to shortcuts.
+  if (!ctrl && !e.altKey && measureKey(e)) {
+    e.preventDefault();
+    return;
+  }
 
   if (ctrl && !e.altKey) {
     const action = CTRL_SHORTCUTS[(e.shiftKey ? 'S+' : '') + e.code];
@@ -137,11 +143,13 @@ function onBeforeUnload(e: BeforeUnloadEvent): void {
 }
 
 export function installKeymap(): () => void {
+  const stopMeasure = installMeasure();
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
   window.addEventListener('blur', onBlur);
   window.addEventListener('beforeunload', onBeforeUnload);
   return () => {
+    stopMeasure();
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('blur', onBlur);

@@ -11,6 +11,7 @@ import {
 } from '../math/vec';
 import type { FaceId, VertId } from '../meshdata';
 import { isPlanar } from '../planarity';
+import { faceUVFunction } from '../uv/continue';
 import { type CornerInput, type Edge, type Face, type HalfEdgeMesh, type Loop, MeshError, type Vertex } from './mesh';
 
 /**
@@ -133,9 +134,11 @@ export function splitEdge(mesh: HalfEdgeMesh, edge: Edge, t = 0.5, id?: VertId):
 // -----------------------------------------------------------------------------------------------
 
 /**
- * Split a face by connecting two non-adjacent vertices of its outer loop with a new edge.
+ * Split a face by connecting two vertices of its outer loop with a new edge, or with a chain of
+ * new edges through `path` (points inside the face, in its plane, going from `va` to `vb`).
  * The original face keeps its id and the side running from `va` to `vb`; the other side becomes
- * a new face. Holes go to whichever side contains them.
+ * a new face. Holes go to whichever side contains them. Path corners get UVs that continue the
+ * face's texture. Without a path the vertices must not be adjacent.
  */
 export function splitFace(
   mesh: HalfEdgeMesh,
@@ -143,6 +146,7 @@ export function splitFace(
   va: Vertex,
   vb: Vertex,
   newFaceId: FaceId = mesh.nextFaceId,
+  path: readonly ReadonlyVec3[] = [],
 ): [Face, Face] {
   if (mesh.faces.get(face.id) !== face) throw new MeshError(`Face ${face.id} does not belong to this mesh`);
   if (mesh.faces.has(newFaceId)) throw new MeshError(`Face id ${newFaceId} already in use`);
@@ -152,10 +156,13 @@ export function splitFace(
   const j = outer.findIndex((c) => c.v === vb);
   if (i < 0 || j < 0) throw new MeshError('Both vertices must be on the outer loop of the face');
   const n = outer.length;
-  if (i === j || (i + 1) % n === j || (j + 1) % n === i) {
-    throw new MeshError('Vertices must be distinct and not adjacent');
+  if (i === j) throw new MeshError('Vertices must be distinct');
+  if (!path.length) {
+    if ((i + 1) % n === j || (j + 1) % n === i) throw new MeshError('Vertices must be distinct and not adjacent');
+    if (mesh.findEdge(va, vb)) throw new MeshError(`Edge ${va.id}-${vb.id} already exists`);
+  } else if (!isPlanar([...snap.loops.flat().map((c) => c.v.pos), ...path])) {
+    throw new MeshError('The path must lie in the plane of the face');
   }
-  if (mesh.findEdge(va, vb)) throw new MeshError(`Edge ${va.id}-${vb.id} already exists`);
 
   const side = (from: number, to: number): Corner[] => {
     const out: Corner[] = [];
@@ -165,12 +172,21 @@ export function splitFace(
     }
     return out;
   };
-  const loopA = side(i, j);
-  const loopB = side(j, i);
+  // Path corners: placeholders until the vertices exist (inside the rebuild, so a failure
+  // removes them again). UVs continue the face's mapping.
+  const uvMap = path.length ? faceUVFunction(outer.map((c) => c.v.pos), outer.map((c) => c.uv)) : null;
+  const pathUV = path.map((p) => uvMap!(p));
+  const pathVerts: Vertex[] = [];
+  const pathCorners = (reverse: boolean): Corner[] => {
+    const cs = pathVerts.map((v, k) => ({ v, uv: pathUV[k]! }));
+    return reverse ? cs.reverse() : cs;
+  };
+  const sideA = side(i, j);
+  const sideB = side(j, i);
 
   // Distribute holes by containment.
   const proj = projector(outer.map((c) => c.v.pos));
-  const polyA = loopA.map((c) => proj(c.v.pos));
+  const polyA = [...sideA.map((c) => proj(c.v.pos)), ...[...path].reverse().map(proj)];
   const holesA: Corner[][] = [];
   const holesB: Corner[][] = [];
   for (const hole of snap.loops.slice(1)) {
@@ -181,6 +197,9 @@ export function splitFace(
   }
 
   return rebuildFaces(mesh, [face], () => {
+    for (const p of path) pathVerts.push(mesh.addVertex([p[0], p[1], p[2]]));
+    const loopA = [...sideA, ...pathCorners(true)];
+    const loopB = [...sideB, ...pathCorners(false)];
     const fa = mesh.addFace([loopA, ...holesA], snap.material, snap.id);
     const fb = mesh.addFace([loopB, ...holesB], snap.material, newFaceId);
     return [fa, fb];

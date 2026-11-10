@@ -436,3 +436,30 @@ body,
 .segmented .dim {
   margin-left: 6px;
 }
+
+/* Measurement box: highlighted when it accepts a typed value, brighter while typing. */
+.measure.accepts span {
+  color: var(--text);
+}
+
+.measure.accepts input {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
+.measure.typing input {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+/* Inference tooltip beside the pointer (Line / Rectangle tools). */
+.infer-tip {
+  position: absolute;
+  pointer-events: none;
+  padding: 1px 6px;
+  font-size: 12px;
+  color: #111;
+  background: #f4f1c9;
+  border: 1px solid #8a8664;
+  border-radius: 2px;
+  white-space: nowrap;
+}

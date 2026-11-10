@@ -269,3 +269,57 @@ way (with what they taught). Newest entries at the bottom of each milestone. See
   Holding keys with `keyboard.down/up` fixed the script; the app was right.
 - **Windows line endings from patch scripts.** Python's text mode wrote CRLF into files I patched in
   M4, which git normalised on commit with warnings. Patch scripts now open files with `newline=''`.
+
+---
+
+## M6 — SketchUp-style feel
+
+### Decisions
+- **Inference order:** endpoint > midpoint > on edge > on axis > on face > ground. The points of
+  the shape being drawn count as endpoints, so a loop closes by snapping to its start. Edges beat
+  axes so lines end on geometry, and axes beat faces because the pointer is almost always over a
+  face. Ground points snap to the grid. Along an axis, or across a face from the last point, the
+  *length* snaps to the grid step instead, so lines come out at round lengths in any direction.
+  Tooltip names and colours follow SketchUp (green endpoint, cyan midpoint, red edge, blue face,
+  the axis colour on an axis).
+- **Axis lock:** → X, ← Y, ↑ Z, ↓ the edge (parallel) or axis being inferred. Pressing the same key
+  again unlocks. Holding Shift locks whatever is inferred and releases on key-up. A locked line
+  still takes points from inferences, projected onto it ("as far as that corner").
+- **The mesh is manifold, so a Line can't leave loose edges.** Points stay pending until they make
+  something. A path that runs from a face's edge to its edge splits the face, and drawing carries
+  on from its end. A closed loop inside a face becomes a hole filled by a new face, ready to
+  push/pull. One touching the face's edge in two or more places splits it. A closed loop not on
+  any face becomes a new one-face "Shape" object. Open points in mid-air simply wait (Esc drops them).
+- **`splitFace` takes an optional path** of interior points, rather than a new operator. A straight
+  split is the empty path, and the rollback, hole distribution and UV continuation are shared.
+- **Rectangles** lie in the plane of the face they start on (level × up-the-slope axes, so walls and
+  roofs get sensible rectangles), or on the horizontal plane through the first corner. Sizes snap to
+  the grid; typing `w,h` sets them.
+- **Measurement box (SketchUp's VCB).** While a tool accepts a value, the box shows its label
+  (Length, Dimensions, Distance, Angle, Scale, Inset, Cuts) and typing goes straight to it, with no
+  click needed. After an operation, a typed value **replaces** it: undo, then run again with the
+  value, so it remains one undo step. The offer lasts while that operation is still the last
+  command, and ends on a tool change. If the rerun fails, the original is redone, so nothing is lost.
+  Gizmo values reuse the drag's own delta: the direction moved, the rotation axis through the
+  pivot, or the axes that were scaled.
+- **Typing takes digits from the shortcuts** while a value is accepted (SketchUp does the same). With
+  the Line tool mid-shape, or straight after a push/pull, `2` types "2" rather than switching to
+  vertex mode. The label beside the box shows when this applies, and once the offer has ended
+  (another command, a new tool, Esc on the line) digits go to the shortcuts again.
+- **Loop cut** follows the quad ring both ways from the hovered edge. It stops at non-quads and
+  boundaries, or closes round a loop. The cut follows the pointer along the edge (grid-snapped by
+  distance); typing n replaces it with n even cuts. Ring parameters are measured from a consistent
+  end of each edge, which is the step's invariant: "t from this half-edge's origin" equals "t from
+  the twin of the opposite side's origin".
+
+### Mistakes
+- **Test-script misses, a third time.** Twice the browser check reported broken tools when the
+  target point was simply off-screen: the mouse wheel zoomed *in* (toward the cursor), not out, and
+  the default framing left `[1,-1,0]` below the window. Printing the projected positions before
+  using them found it immediately. The scripts now log "on screen?" for their targets first.
+- Three expected values in the new unit tests were wrong rather than the code: `Array.sort()` sorts
+  numbers as strings, a "bow-tie" test shape had zero net area so it hit the area check before the
+  self-crossing check, and I assumed which end of the edge ring would be "from".
+- The loop-cut hover distance first went in the measurement box, under the label "Cuts", which read
+  as "0.05 cuts". It moved to the pointer tooltip; the box is for what you can type.
+- Heredoc patches with quotes failed again; the file tool remains the reliable way to write patch scripts.

@@ -63,6 +63,21 @@ export function faceUVMap(
 }
 
 /**
+ * UVs for new points in a face's plane: continue its texture (`faceUVMap`), or, when its UVs are
+ * degenerate, fall back to a world-space planar projection.
+ */
+export function faceUVFunction(
+  points: readonly ReadonlyVec3[],
+  uvs: readonly ReadonlyVec2[],
+): (p: ReadonlyVec3) => Vec2 {
+  const map = faceUVMap(points, uvs);
+  if (map) return map;
+  const n = newellNormal(points);
+  const axes = planarAxes(length(n) < EPS ? [0, 0, 1] : n);
+  return (p) => planarUV(p, axes);
+}
+
+/**
  * UVs for a side wall [a, b, b + offset, a + offset] grown from the edge a→b. The UVs at a and b
  * are kept, so the wall's texture joins the face it shares that edge with; the offset direction
  * maps to UV space at the same texel density, turned 90° so the wall's texture isn't mirrored.

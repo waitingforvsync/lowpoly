@@ -90,6 +90,11 @@ export class History<S> {
     return this.savedDepth !== this.undoStack.length;
   }
 
+  /** The command the next undo would revert. */
+  get lastCommand(): Command | null {
+    return this.undoStack[this.undoStack.length - 1]?.cmd ?? null;
+  }
+
   get undoLabel(): string | null {
     return this.undoStack.at(-1)?.cmd.label ?? null;
   }
